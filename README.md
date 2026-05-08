@@ -16,8 +16,11 @@
 | **Text-to-Speech** — 25 voices across 10 languages, zero-shot voice cloning, CFG-scale slider, in-browser audio preview. | **Speech-to-Text** — drop a `.wav`/`.mp3`/`.m4a` and get text + speaker-labeled segments + timestamps. Powered by VibeVoice-ASR-7B (60-min single-pass). |
 | ![Voices](docs/screenshots/voices.png) | ![API Keys](docs/screenshots/keys.png) |
 | **Voice Catalog** — preview every voice in one click, grouped by language family. | **API Keys** — `vsk_live_*` bearer tokens with create/list/revoke and last-used tracking. Same key authenticates against every `/v1/*` endpoint. |
-| ![Usage & Credits](docs/screenshots/usage.png) | ![Login](docs/screenshots/login.png) |
-| **Usage & Credits** — Cashfree-powered top-ups (₹99 / 1k credits, ₹399 / 5k, ₹999 / 15k), real-time payment history, balance card. | **Sign in** — email/password or Google. JWT + bcrypt + SQLite. |
+| ![Usage & Credits](docs/screenshots/usage.png) | ![API Reference](docs/screenshots/docs.png) |
+| **Usage & Credits** — Cashfree-powered top-ups (₹99 / 1k credits, ₹399 / 5k, ₹999 / 15k), real-time payment history, balance card. | **API Reference** — copy-pasteable curl / Python / Node snippets pre-filled with the live base URL. |
+
+![User menu](docs/screenshots/user-menu.png)
+> User menu — quick credit balance, account & keys, sign out.
 
 > Screenshots live in [`docs/screenshots/`](docs/screenshots). Hard-refresh the live site if cached SPA shows older UI.
 
