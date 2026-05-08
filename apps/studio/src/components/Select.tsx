@@ -219,34 +219,34 @@ export function Select({
           "w-full text-left px-4 py-2.5 flex items-center gap-3 transition-colors",
           "border-l-2",
           isHighlighted
-            ? "bg-accent/15 border-accent text-accent"
+            ? "bg-accent/10 border-accent text-accent shadow-[inset_0_0_20px_rgba(255,42,95,0.05)]"
             : "border-transparent hover:bg-panel-2/80 text-text/90",
-          isSelected && !isHighlighted ? "text-accent" : "",
+          isSelected && !isHighlighted ? "text-accent text-glow" : "",
           opt.disabled ? "opacity-40 cursor-not-allowed" : "cursor-pointer",
         ].join(" ")}
       >
         <span className="flex-1 min-w-0">
-          <div className="text-sm font-medium truncate flex items-center gap-2">
+          <div className="text-sm font-bold tracking-tight truncate flex items-center gap-2 uppercase">
             {opt.label}
             {opt.badge && (
-              <span className="text-xs font-bold text-accent-2 shrink-0">
+              <span className="text-[10px] font-mono font-black text-accent-2 bg-accent-2/10 px-1.5 py-0.5 rounded shrink-0">
                 {opt.badge}
               </span>
             )}
           </div>
           {opt.hint && (
-            <div className="text-[10px] font-mono text-muted/60 mt-0.5 truncate">
+            <div className="text-[10px] font-mono text-muted/60 mt-1 truncate">
               {opt.hint}
             </div>
           )}
         </span>
         {opt.meta && (
-          <span className="text-[10px] font-mono text-muted/50 truncate max-w-[140px] shrink-0">
+          <span className="text-[10px] font-mono text-muted/40 truncate max-w-[120px] shrink-0 bg-bg/50 px-1.5 py-0.5 rounded border border-border/30">
             {opt.meta}
           </span>
         )}
         {isSelected && (
-          <Check size={14} className="text-accent shrink-0" strokeWidth={3} />
+          <Check size={14} className="text-accent shrink-0 drop-shadow-[0_0_5px_#ff2a5f]" strokeWidth={3} />
         )}
       </button>
     );
@@ -264,23 +264,27 @@ export function Select({
         maxHeight: rect.maxHeight,
         zIndex: 1000,
       }}
-      className="rounded-xl border border-accent/40 shadow-2xl shadow-black/80 overflow-y-auto bg-[#0d0d0d]/95 backdrop-blur-xl animate-fade-in"
+      className="rounded-2xl border border-accent/40 shadow-[0_20px_50px_rgba(0,0,0,0.9),0_0_30px_rgba(255,42,95,0.1)] overflow-y-auto bg-bg/95 backdrop-blur-2xl animate-slide-up origin-top"
     >
       {flat.length === 0 ? (
-        <div className="p-4 text-sm text-muted/60 text-center font-medium">
+        <div className="p-6 text-sm text-muted/60 text-center font-mono uppercase tracking-widest">
           {emptyText}
         </div>
       ) : groups ? (
         groups.map((g) => (
           <div key={g.label}>
-            <div className="px-4 py-2 text-[10px] font-mono uppercase tracking-widest text-muted/70 border-b border-border/30 bg-panel-2/60 sticky top-0 backdrop-blur-md z-10">
+            <div className="px-5 py-2.5 text-[9px] font-display font-bold uppercase tracking-[0.2em] text-accent/70 border-b border-border/50 bg-panel-2/80 sticky top-0 backdrop-blur-md z-10">
               {g.label}
             </div>
-            {g.options.map(renderOption)}
+            <div className="py-1">
+              {g.options.map(renderOption)}
+            </div>
           </div>
         ))
       ) : (
-        options?.map(renderOption)
+        <div className="py-1">
+          {options?.map(renderOption)}
+        </div>
       )}
     </div>
   ) : null;
@@ -295,33 +299,33 @@ export function Select({
         aria-haspopup="listbox"
         aria-expanded={open}
         className={[
-          "w-full bg-panel-2/50 border rounded-xl px-3 text-left",
+          "w-full bg-panel-2/40 glass-panel border rounded-xl px-4 text-left",
           padY,
-          "flex items-center gap-3 transition-all",
+          "flex items-center gap-3 transition-all duration-300",
           open
-            ? "border-accent ring-1 ring-accent/40 shadow-[0_0_15px_rgba(255,42,95,0.15)]"
-            : "border-border/50 hover:border-accent/30",
+            ? "border-accent ring-1 ring-accent/40 shadow-[0_0_25px_rgba(255,42,95,0.2)]"
+            : "border-border/50 hover:border-accent/40 hover:bg-panel-2/60",
           disabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer",
         ].join(" ")}
       >
         <span className="flex-1 min-w-0 truncate text-sm">
           {selected ? (
-            <span className="flex items-center gap-2 font-medium">
+            <span className="flex items-center gap-3 font-bold tracking-tight uppercase">
               <span className="truncate">{selected.label}</span>
               {selected.badge && (
-                <span className="text-accent-2 font-bold shrink-0">
+                <span className="text-[10px] font-mono font-black text-accent-2 bg-accent-2/10 px-1.5 py-0.5 rounded shrink-0">
                   {selected.badge}
                 </span>
               )}
             </span>
           ) : (
-            <span className="text-muted/50 font-medium">{placeholder}</span>
+            <span className="text-muted/40 font-bold tracking-tight uppercase">{placeholder}</span>
           )}
         </span>
         <ChevronDown
-          size={16}
-          className={`shrink-0 transition-transform duration-200 ${
-            open ? "rotate-180 text-accent" : "text-muted"
+          size={18}
+          className={`shrink-0 transition-transform duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] ${
+            open ? "rotate-180 text-accent" : "text-muted/60"
           }`}
         />
       </button>

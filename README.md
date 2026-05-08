@@ -1,70 +1,157 @@
 # 🎙️ Vaani
 
-**Open-stack voice AI platform — TTS, STT, and a Sarvam-style developer studio, built on open-source models.**
+> **Open-stack voice AI platform.** TTS, STT, voice cloning, and real-time voice agents — all running on your own GPU. Built on VibeVoice + community models, with a Sarvam-style Studio frontend.
 
-Live: [vaani.shubhamiitbhu.in](https://vaani.shubhamiitbhu.in) · API: [vaani-api.shubhamiitbhu.in](https://vaani-api.shubhamiitbhu.in)
+**Live:** [vaani.shubhamiitbhu.in](https://vaani.shubhamiitbhu.in) · **API:** [vaani-api.shubhamiitbhu.in](https://vaani-api.shubhamiitbhu.in) · **LiveKit:** `wss://livekit.shubhamiitbhu.in`
+
+---
+
+## Screenshots
+
+| | |
+|---|---|
+| ![Home](docs/screenshots/home.png) | ![Voice Agent](docs/screenshots/agent.png) |
+| **Home** — Studio dashboard with the four pillars: TTS, STT, Voice Agent, Voice Catalog. | **Voice Agent** — real-time WebRTC call. VAD → STT (Groq Whisper *or* in-browser WebGPU Whisper) → Qwen3-32B → VibeVoice TTS. Live waveform animation, agent picker, voice override. |
+| ![TTS](docs/screenshots/tts.png) | ![STT](docs/screenshots/stt.png) |
+| **Text-to-Speech** — 25 voices across 10 languages, zero-shot voice cloning, CFG-scale slider, in-browser audio preview. | **Speech-to-Text** — drop a `.wav`/`.mp3`/`.m4a` and get text + speaker-labeled segments + timestamps. Powered by VibeVoice-ASR-7B (60-min single-pass). |
+| ![Voices](docs/screenshots/voices.png) | ![API Keys](docs/screenshots/keys.png) |
+| **Voice Catalog** — preview every voice in one click, grouped by language family. | **API Keys** — `vsk_live_*` bearer tokens with create/list/revoke and last-used tracking. Same key authenticates against every `/v1/*` endpoint. |
+| ![Usage & Credits](docs/screenshots/usage.png) | ![Login](docs/screenshots/login.png) |
+| **Usage & Credits** — Cashfree-powered top-ups (₹99 / 1k credits, ₹399 / 5k, ₹999 / 15k), real-time payment history, balance card. | **Sign in** — email/password or Google. JWT + bcrypt + SQLite. |
+
+> Screenshots live in [`docs/screenshots/`](docs/screenshots). Hard-refresh the live site if cached SPA shows older UI.
 
 ---
 
 ## What's inside
 
-| Capability | Model | License |
-|---|---|---|
-| Streaming TTS · 25 voices · 10 langs | [microsoft/VibeVoice-Realtime-0.5B](https://huggingface.co/microsoft/VibeVoice-Realtime-0.5B) | MIT |
-| Long-form STT · diarization · 50+ langs | [microsoft/VibeVoice-ASR-HF](https://huggingface.co/microsoft/VibeVoice-ASR) | MIT |
-| Hindi TTS · zero-shot voice cloning | [tarun7r/vibevoice-hindi-1.5B](https://huggingface.co/tarun7r/vibevoice-hindi-1.5B) | MIT |
+| Capability | Model | License | Worker |
+|---|---|---|---|
+| Streaming TTS · 25 voices · 10 langs | [microsoft/VibeVoice-Realtime-0.5B](https://huggingface.co/microsoft/VibeVoice-Realtime-0.5B) | MIT | main API (`:8001`) |
+| Long-form STT · diarization · 50+ langs | [microsoft/VibeVoice-ASR-HF](https://huggingface.co/microsoft/VibeVoice-ASR) | MIT | STT worker (`:8002`) |
+| Hindi TTS + zero-shot voice cloning | [tarun7r/vibevoice-hindi-1.5B](https://huggingface.co/tarun7r/vibevoice-hindi-1.5B) | MIT | Hindi worker (`:8003`) |
+| Realtime LLM for the voice agent | Qwen3-32B via [Groq](https://groq.com) | API | Agent worker |
+| Realtime STT (server-side path) | whisper-large-v3 via Groq | API | Agent worker |
+| Realtime STT (in-browser path, opt-in) | [onnx-community/whisper-tiny](https://huggingface.co/onnx-community/whisper-tiny) | MIT | Browser (WebGPU + Transformers.js) |
+| Self-hosted realtime media | [LiveKit](https://github.com/livekit/livekit) | Apache 2.0 | Docker (host network) |
 
-Hardware: a single **NVIDIA GH200 480GB** (96 GB HBM3, ARM aarch64).
+Hardware: a single **NVIDIA GH200 480 GB** (96 GB HBM3, ARM aarch64). About **20 GB VRAM** with all models loaded simultaneously.
+
+---
 
 ## Architecture
 
 ```
-              Caddy on :80/:443  (auto-HTTPS via Let's Encrypt)
-                ├── vaani.shubhamiitbhu.in       → static SPA  (Vite + React + TS + Tailwind)
-                └── vaani-api.shubhamiitbhu.in
-                      ├── /v1/audio/transcriptions*  →  127.0.0.1:8002  (STT worker, transformers 5.8 venv)
-                      └── everything else            →  127.0.0.1:8001  (main API, transformers 4.57 venv)
-                                                        ├── voice hi-*  → POST 127.0.0.1:8003 (Hindi worker, community vibevoice fork venv)
-                                                        ├── voice user-*→ POST 127.0.0.1:8003 with absolute path of stored wav
-                                                        └── else        → local VibeVoice-Realtime-0.5B
+        ┌──────────────────── Internet ──────────────────────┐
+        │                          │                          │
+        │  vaani.shubhamiitbhu.in  │  vaani-api.…             │  livekit.…
+        │       (SPA)              │  (TTS + STT + auth)      │  (RTC signaling + media)
+        ▼                          ▼                          ▼
+                        Caddy (80/443, auto-HTTPS, Let's Encrypt)
+                                   │
+        ┌──────────────────────────┼─────────────────────────────────────┐
+        │                          │                                     │
+        │ vhost: vaani.…           │ vhost: vaani-api.…                  │ vhost: livekit.…
+        │   → file_server          │   ┌── path /v1/audio/transcriptions │   → 127.0.0.1:7880
+        │     /apps/studio/dist    │   │                                 │     (LiveKit Server,
+        │                          │   ├── → 127.0.0.1:8002              │      Docker, host-net)
+        │                          │   │   (STT worker, transformers 5.8)│
+        │                          │   │                                 │
+        │                          │   └── else                          │
+        │                          │       → 127.0.0.1:8001              │
+        │                          │       (main API, transformers 4.57) │
+        │                          │           ├── voice hi-* /          │
+        │                          │           │   user-…  → :8003       │
+        │                          │           │   (community fork TTS)  │
+        │                          │           ├── /v1/auth/* /v1/keys/* │
+        │                          │           ├── /v1/billing/*         │
+        │                          │           └── /v1/agent/token       │
+        │                          │                                     │
+        │                          │   Agent worker (separate proc) ─────┘
+        │                          │     joins LiveKit rooms,
+        │                          │     STT(Groq Whisper or browser)
+        │                          │     + LLM(Groq Qwen3) + TTS(VaaniTTS)
+        └──────────────────────────┴─────────────────────────────────────┘
 ```
 
-The main API also serves `/v1/auth/*`, `/v1/keys/*`, `/v1/voices`, `/v1/voices/upload`, `/v1/audio/speech`, and `/api/info`.
+**Four Python venvs** — incompatible `transformers` pins force separation:
 
-**Three Python venvs** are required because of irreconcilable transformers version constraints:
+| Venv | transformers | Used by |
+|---|---|---|
+| `~/vaani/.venv` | 4.57 | main API + streaming TTS (`vibevoice` pkg) |
+| `~/vaani/.venv-stt` | 5.8 | STT worker (native `VibeVoiceAsr*`) |
+| `~/vaani/.venv-tts-hi` | 4.51 | Hindi/community TTS (community vibevoice fork) |
+| `~/vaani/.venv-agent` | (livekit-agents) | LiveKit agent worker |
 
-| venv | Path | transformers | Why |
-|---|---|---|---|
-| TTS streaming | `~/vaani/.venv` | 4.57 | `vibevoice` pip pkg pins `<5.0` |
-| STT | `~/vaani/.venv-stt` | 5.8 | VibeVoice-ASR ships only in 5.x |
-| Hindi TTS + cloning | `~/vaani/.venv-tts-hi` | 4.51 | community vibevoice fork has the full multi-speaker TTS code Microsoft pulled |
+Full deployment guide: [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
+
+---
 
 ## Repo layout
 
 ```
 vaani/
 ├── apps/
-│   ├── api/                  # FastAPI gateway (TTS + auth)
+│   ├── api/                  # FastAPI gateway (TTS + auth + billing + agent token)
 │   │   ├── main.py
-│   │   └── auth.py           # SQLite + JWT + Google ID-token verify
+│   │   ├── auth.py           # SQLite + JWT + Google ID-token verify
+│   │   ├── billing.py        # Cashfree integration
+│   │   └── agent_routes.py   # LiveKit JWT minting
 │   ├── stt_worker/           # FastAPI STT worker (VibeVoice-ASR)
-│   │   └── main.py
-│   ├── tts_worker/           # smoke tests for the streaming model
+│   ├── tts_hi_worker/        # FastAPI Hindi/cloning worker (community VibeVoice)
+│   ├── agent/                # LiveKit voice-agent worker
+│   │   ├── main.py
+│   │   └── vaani_plugins.py  # custom STT/TTS bridges
+│   ├── shared/
+│   │   └── agent_presets.json   # 5 agent personalities (general/support/storyteller/tutor/hindi)
 │   └── studio/               # Vite + React + TS + Tailwind SPA
 │       ├── src/
-│       │   ├── pages/        # Home, TTS, STT, Voices, Login, Signup, Keys, Usage, Docs
-│       │   ├── components/   # Sidebar, StatusPill, UserMenu
-│       │   └── lib/          # api.ts, auth.tsx (AuthContext + GIS)
-│       └── package.json
+│       │   ├── pages/        # Home · TTS · STT · Agent · Voices · Keys · Usage · Docs · Login · Signup
+│       │   ├── components/   # Sidebar · UserMenu · StatusPill · VoiceWave · Select
+│       │   └── lib/          # api · auth · use-whisper · whisper-worker
+│       └── public/favicon.svg
 ├── infra/
-│   ├── caddy/Caddyfile       # two vhosts, path-routing for STT
-│   └── systemd/              # vaani-api.service, vaani-stt.service
-└── .env.example              # server-side secrets template
+│   ├── caddy/Caddyfile       # 3 vhosts (Studio · API+STT · LiveKit)
+│   ├── livekit/config.yaml
+│   └── systemd/              # vaani-{api,stt,tts-hi,agent,livekit}.service
+├── scripts/
+│   ├── bootstrap.sh          # one-shot fresh-server setup (idempotent)
+│   ├── boom.sh               # boot/restart everything
+│   └── deploy_remote.sh      # called by GitHub Actions
+├── docs/
+│   ├── DEPLOYMENT.md         # full deploy guide
+│   └── screenshots/
+└── .github/workflows/deploy.yml
 ```
+
+---
+
+## Quickstart on a fresh GPU box
+
+```bash
+# 1. Clone
+git clone https://github.com/shubham21155102/vaani.git ~/vaani
+cd ~/vaani
+
+# 2. Fill in secrets
+cp .env.example /home/ubuntu/vaani/.env
+chmod 600 /home/ubuntu/vaani/.env
+${EDITOR:-nano} /home/ubuntu/vaani/.env
+
+# 3. Bootstrap (~10–20 min — installs deps, builds 4 venvs, downloads ~20 GB of models, pulls LiveKit)
+bash scripts/bootstrap.sh
+
+# 4. Boot everything (or after every reboot)
+bash scripts/boom.sh
+```
+
+See [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) for DNS/SG requirements, Cashfree webhook setup, Google OAuth config, and the full troubleshooting matrix.
+
+---
 
 ## API
 
-OpenAI-shape JSON. All examples use the public host.
+OpenAI-shape JSON. Drop us in as a swap for `/v1/audio/speech`.
 
 ### TTS
 
@@ -92,7 +179,7 @@ curl -X POST https://vaani-api.shubhamiitbhu.in/v1/audio/transcriptions \
 ### Voice cloning
 
 ```bash
-# Upload a 3–30s reference .wav
+# Upload a 3–30 s reference .wav (auth required)
 curl -X POST https://vaani-api.shubhamiitbhu.in/v1/voices/upload \
   -H "Authorization: Bearer <jwt-or-vsk_live_*>" \
   -F "name=my-voice" \
@@ -107,93 +194,94 @@ curl -X POST https://vaani-api.shubhamiitbhu.in/v1/audio/speech \
   --output cloned.wav
 ```
 
-### API keys
+### Auth + API keys
 
 ```bash
-# Issue a key (web session JWT required)
+# Sign up (or log in)
+curl -X POST https://vaani-api.shubhamiitbhu.in/v1/auth/signup \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"you@example.com","password":"at-least-8","display_name":"You"}'
+
+# Mint a server-side key from a web session
 curl -X POST https://vaani-api.shubhamiitbhu.in/v1/keys \
   -H "Authorization: Bearer <jwt>" \
   -H 'Content-Type: application/json' \
   -d '{"name":"production-server"}'
-# → {"id":1,"name":"production-server","key":"vsk_live_...","display":"vsk_live_abc…wxyz"}
+# → {"id":1, "key":"vsk_live_…", "display":"vsk_live_abc…wxyz"}
 
-# Then use the key as a Bearer token like any other
+# Use the key like any Bearer token
 curl -H "Authorization: Bearer vsk_live_..." https://vaani-api.shubhamiitbhu.in/v1/auth/me
 ```
 
-### Auth
+### Voice agent (browser-side)
 
-```bash
-# Email + password
-curl -X POST https://vaani-api.shubhamiitbhu.in/v1/auth/signup \
-  -H 'Content-Type: application/json' \
-  -d '{"email":"you@example.com","password":"at-least-8-chars","display_name":"You"}'
+```ts
+import { Room } from "livekit-client";
 
-# Google (browser-side, via @google/identity-services button)
-curl -X POST https://vaani-api.shubhamiitbhu.in/v1/auth/google \
-  -H 'Content-Type: application/json' \
-  -d '{"credential":"<google-id-token>"}'
+const r = await fetch("https://vaani-api.shubhamiitbhu.in/v1/agent/token", {
+  method: "POST",
+  headers: { "Content-Type": "application/json", Authorization: `Bearer ${jwt}` },
+  body: JSON.stringify({ agent_id: "general", voice: "en-emma_woman" }),
+});
+const { url, token } = await r.json();
 
-# Authed call
-curl https://vaani-api.shubhamiitbhu.in/v1/auth/me \
-  -H 'Authorization: Bearer <jwt>'
+const room = new Room();
+await room.connect(url, token);
+await room.localParticipant.setMicrophoneEnabled(true);
+// ... attach RoomEvent.TrackSubscribed audio to an <audio> element
 ```
 
-## Local development
+---
 
-### SPA (Vite)
-
-```bash
-cd apps/studio
-cp .env.example .env             # fill in VITE_GOOGLE_CLIENT_ID
-bun install                      # or pnpm / npm
-bun run dev                      # http://localhost:5173
-```
-
-### Backend
-
-The two venvs need to be created separately on the deploy host. On the GH200 box:
-
-```bash
-# TTS venv (transformers 4.57, vibevoice pkg)
-python3 -m venv ~/vaani/.venv
-source ~/vaani/.venv/bin/activate
-pip install -e external/VibeVoice[streamingtts]
-pip install fastapi uvicorn[standard] structlog pyjwt bcrypt google-auth email-validator soundfile librosa
-
-# STT venv (transformers 5.8 only — no vibevoice pkg)
-python3 -m venv ~/vaani/.venv-stt
-source ~/vaani/.venv-stt/bin/activate
-pip install torch transformers==5.8.0 fastapi uvicorn[standard] structlog soundfile librosa
-```
-
-Then create `.env` (copy `.env.example` and run `python3 -c 'import secrets; print(secrets.token_urlsafe(48))'` for the JWT secret), install the systemd units in `infra/systemd/`, and the Caddyfile in `infra/caddy/`.
-
-## Status & known issues
+## Status
 
 | | |
 |---|---|
-| English TTS | ✅ Live · sub-realtime (RTF ≈ 1.2× on SDPA fallback). |
-| Hindi TTS | ✅ Live · vibevoice-hindi-1.5B on a 3rd worker, transparently proxied for `hi-*` voice IDs. |
-| Voice cloning | ✅ Live · upload a .wav, get a `user{id}-{slug}` voice ID, use it like any preset. Reuses the Hindi worker (zero-shot). |
-| STT | ✅ Live · RTF 0.19× (5× faster than realtime). Returns text + speaker-labeled segments with timestamps. |
-| Auth | ✅ Live · email/password + Google OAuth. SQLite. |
-| API keys | ✅ Live · `vsk_live_*` bearer tokens, last_used tracking. Frontend management page. |
-| Studio SPA | ✅ Live · TTS / STT / Voices / Keys / Login / Signup. |
-| Billing / Razorpay | ⏳ Placeholder UI. |
-| Perf — shape-dependent slowdown | 🐛 Each new voice-id × audio-length shape pays a ~70 s first-hit cost (CUDA kernel JIT on SDPA fallback). Subsequent matched-shape requests are fast. Real fix: build flash-attn-2 from source for ARM/Hopper. |
+| English TTS | ✅ Live · sub-realtime (RTF ≈ 1.2× on SDPA fallback) |
+| Hindi TTS | ✅ Live · `vibevoice-hindi-1.5B` proxied for `hi-*` voice IDs |
+| Voice cloning | ✅ Live · upload a `.wav`, get `user{id}-{slug}` voice |
+| STT (file upload) | ✅ Live · RTF 0.19× (5× faster than realtime) |
+| STT (realtime, agent) | ✅ Live · Groq Whisper (~200 ms turns) or in-browser WebGPU Whisper (zero server cost) |
+| Auth | ✅ Live · email+password + Google OAuth |
+| API keys | ✅ Live · `vsk_live_*` bearer tokens, last-used tracking |
+| Voice agent | ✅ Live · 5 personality presets, voice override, live waveform |
+| Cashfree billing | ✅ Live · production order verified end-to-end |
+| GitHub Actions auto-deploy | ✅ Live · ~2 min push-to-deploy |
+| Studio SPA | ✅ Live · TTS / STT / Agent / Voices / Keys / Usage / Login / Signup |
+| Perf — shape-dependent slowdown | 🐛 First call per (voice × text-length) on SDPA pays a JIT cost. Real fix: build flash-attn-2 from source for ARM/Hopper. |
+
+---
+
+## CI / CD
+
+Push to `main` triggers [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml):
+
+```
+checkout → bun install → bun run build (SPA) → rsync apps/+infra/+scripts/+dist
+        → ssh: scripts/deploy_remote.sh → smoke-test public endpoints
+```
+
+Required repo secrets: `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_SSH_KEY`. ~2 min end-to-end.
+
+---
 
 ## Acknowledgements
 
 Built on the work of:
 
 - **Microsoft VibeVoice** team — open-source frontier voice AI
-- **Hugging Face transformers** — model integration
+- **tarun7r** — Hindi fine-tune of VibeVoice-1.5B
+- **vibevoice-community** — kept the original full TTS code alive after the upstream pull
+- **LiveKit** — self-hostable realtime media stack
+- **Hugging Face** — Transformers + Transformers.js
+- **Groq** — fast Whisper STT and Qwen3-32B inference
 - **Caddy**, **FastAPI**, **Vite**, **React**, **Tailwind**
 
 Disclose AI-generated audio when you share it. Voice impersonation without consent is prohibited under VibeVoice's usage guidelines.
 
+---
+
 ## License
 
-Source code: MIT.
+Source code: **MIT**.
 Model weights are MIT-licensed by their respective authors (see links in the table above).
