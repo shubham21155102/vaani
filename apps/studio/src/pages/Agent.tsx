@@ -34,6 +34,11 @@ export function Agent() {
   const [voices, setVoices] = useState<Voice[]>([]);
   const [voiceOverride, setVoiceOverride] = useState<string>("");
   const [browserSttEnabled, setBrowserSttEnabled] = useState<boolean>(false);
+  // Live audio levels and speaking state for the wave animation.
+  const [userLevel, setUserLevel] = useState(0);
+  const [agentLevel, setAgentLevel] = useState(0);
+  const [agentSpeaking, setAgentSpeaking] = useState(false);
+  const [userSpeaking, setUserSpeaking] = useState(false);
   const [webgpuSupported, setWebgpuSupported] = useState<boolean>(false);
 
   // When the user changes the agent, reset the voice override to that
@@ -50,6 +55,37 @@ export function Agent() {
     const has = typeof navigator !== "undefined" && "gpu" in navigator;
     setWebgpuSupported(Boolean(has));
   }, []);
+
+  // Animation loop: poll LiveKit audio levels while connected.
+  useEffect(() => {
+    if (status !== "connected") {
+      setUserLevel(0);
+      setAgentLevel(0);
+      setUserSpeaking(false);
+      setAgentSpeaking(false);
+      return;
+    }
+    let raf = 0;
+    const tick = () => {
+      const room = roomRef.current;
+      if (room) {
+        const lp = room.localParticipant;
+        const agent = [...room.remoteParticipants.values()].find((p) =>
+          p.identity.startsWith("agent")
+        );
+        // Smooth toward target so the wave doesn't stutter.
+        setUserLevel((cur) => cur + ((lp.audioLevel || 0) - cur) * 0.4);
+        setAgentLevel(
+          (cur) => cur + ((agent?.audioLevel || 0) - cur) * 0.4
+        );
+        setUserSpeaking(Boolean(lp.isSpeaking));
+        setAgentSpeaking(Boolean(agent?.isSpeaking));
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [status]);
 
   // Browser STT — load model only while toggle is on; route transcripts to
   // the room as data messages so the agent worker treats them as user input.
