@@ -17,7 +17,10 @@ import { pipeline, env, type Pipeline } from "@huggingface/transformers";
 env.allowLocalModels = false;
 env.useBrowserCache = true;
 
-const MODEL_ID = "onnx-community/whisper-base";
+// whisper-base is ~74M params and feels sluggish on WebGPU.
+// whisper-tiny (~39M) runs ~3-5× faster with marginally lower accuracy —
+// a much better tradeoff for realtime turn-taking.
+const MODEL_ID = "onnx-community/whisper-tiny";
 
 declare const self: DedicatedWorkerGlobalScope;
 
@@ -84,5 +87,17 @@ self.onmessage = async (e: MessageEvent) => {
   }
 };
 
-// Auto-init on worker spawn.
-load().catch((err) => post({ type: "error", message: String(err) }));
+// Auto-init on worker spawn + warm up the GPU kernels with a short silent
+// buffer so the first real utterance doesn't pay the JIT cost.
+(async () => {
+  try {
+    const p = await load();
+    const warm = new Float32Array(16000); // 1 s of silence at 16 kHz
+    await (p as unknown as (a: Float32Array, o: object) => Promise<unknown>)(
+      warm,
+      { language: "english", task: "transcribe", return_timestamps: false }
+    );
+  } catch (err) {
+    post({ type: "error", message: String(err) });
+  }
+})();

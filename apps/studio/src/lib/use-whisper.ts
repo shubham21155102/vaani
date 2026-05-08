@@ -18,11 +18,9 @@ interface UseWhisperOpts {
 }
 
 const SAMPLE_RATE = 16000;
-const FRAME_MS = 50;
-const FRAME_SAMPLES = (SAMPLE_RATE * FRAME_MS) / 1000;
-const SPEECH_RMS_THRESHOLD = 0.015;
-const MIN_UTTERANCE_MS = 600;
-const SILENCE_TAIL_MS = 600;
+const SPEECH_RMS_THRESHOLD = 0.012;
+const MIN_UTTERANCE_MS = 350; // shortest "real" utterance we'll bother sending
+const SILENCE_TAIL_MS = 400; // how long of trailing silence ends an utterance
 const MAX_UTTERANCE_MS = 12_000;
 
 export function useWhisper({ enabled, onTranscript, language }: UseWhisperOpts) {
