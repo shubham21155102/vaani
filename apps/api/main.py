@@ -20,6 +20,8 @@ import logging
 import os
 import tempfile
 import time
+import urllib.request
+import urllib.error
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -47,6 +49,8 @@ VOICES_DIR = os.environ.get(
 )
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 SAMPLE_RATE = 24000
+
+HI_WORKER_URL = os.environ.get("VAANI_HI_WORKER", "http://127.0.0.1:8003")
 
 
 def _scan_voices(voices_dir: str) -> dict[str, str]:
@@ -254,15 +258,55 @@ def healthz():
     return {"status": "ok"}
 
 
+def _fetch_hi_voices() -> list[dict]:
+    """Best-effort fetch of Hindi worker voices. Returns [] if it's down."""
+    try:
+        req = urllib.request.Request(
+            f"{HI_WORKER_URL}/v1/voices",
+            headers={"Accept": "application/json"},
+        )
+        with urllib.request.urlopen(req, timeout=2) as resp:
+            import json as _json
+            data = _json.loads(resp.read().decode())
+            return data.get("voices", [])
+    except (urllib.error.URLError, OSError, ValueError):
+        return []
+
+
 @app.get("/v1/voices")
 def list_voices():
-    return {
-        "voices": [
-            {"id": vid, "stem": Path(p).stem}
-            for vid, p in sorted(engine.voices.items())
-            if vid == Path(p).stem.lower()  # de-dupe: only canonical IDs
-        ]
-    }
+    local = [
+        {"id": vid, "stem": Path(p).stem, "language": vid.split("-")[0]}
+        for vid, p in sorted(engine.voices.items())
+        if vid == Path(p).stem.lower()  # de-dupe: only canonical IDs
+    ]
+    return {"voices": local + _fetch_hi_voices()}
+
+
+def _proxy_to_hi(req: "SpeechRequest") -> bytes:
+    """Synchronous-on-purpose: called via asyncio.to_thread."""
+    import json as _json
+    body = _json.dumps(
+        {
+            "input": req.input,
+            "voice": req.voice,
+            "cfg_scale": req.cfg_scale,
+        }
+    ).encode("utf-8")
+    request = urllib.request.Request(
+        f"{HI_WORKER_URL}/v1/audio/speech",
+        data=body,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=120) as resp:
+            return resp.read()
+    except urllib.error.HTTPError as e:
+        detail = e.read().decode("utf-8", errors="replace")[:500]
+        raise HTTPException(e.code, f"hi worker: {detail}")
+    except urllib.error.URLError as e:
+        raise HTTPException(503, f"hi worker unavailable: {e.reason}")
 
 
 @app.post("/v1/audio/speech")
@@ -271,6 +315,22 @@ async def create_speech(req: SpeechRequest):
         raise HTTPException(503, "model still loading")
     if req.response_format != "wav":
         raise HTTPException(400, "only response_format=wav is supported in v1")
+
+    # Hindi voices live in a separate worker process (different transformers
+    # version + community vibevoice fork). Proxy POSTs to it transparently.
+    if req.voice.lower().startswith("hi-"):
+        t0 = time.time()
+        wav = await asyncio.to_thread(_proxy_to_hi, req)
+        log.info(
+            "synth_done_hi", chars=len(req.input), voice=req.voice,
+            bytes=len(wav), seconds=round(time.time() - t0, 2),
+        )
+        return Response(
+            content=wav,
+            media_type="audio/wav",
+            headers={"X-Vaani-Generation-Seconds": f"{time.time() - t0:.2f}"},
+        )
+
     if req.voice.lower() not in engine.voices:
         raise HTTPException(
             400,

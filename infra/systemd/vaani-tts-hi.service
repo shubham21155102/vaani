@@ -1,0 +1,20 @@
+[Unit]
+Description=Vaani Hindi TTS worker (vibevoice-hindi-1.5B)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu/vaani
+Environment=PYTHONUNBUFFERED=1
+Environment=VAANI_HI_MODEL=/home/ubuntu/vaani/models/vibevoice-hindi-1.5B
+ExecStart=/home/ubuntu/vaani/.venv-tts-hi/bin/uvicorn apps.tts_hi_worker.main:app --host 127.0.0.1 --port 8003 --workers 1
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
