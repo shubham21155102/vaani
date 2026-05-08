@@ -1,0 +1,25 @@
+[Unit]
+Description=Vaani LiveKit server (self-hosted, behind Caddy)
+After=docker.service network-online.target
+Requires=docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=/home/ubuntu/vaani/.env
+ExecStartPre=-/usr/bin/docker rm -f vaani-livekit
+ExecStart=/bin/sh -c '/usr/bin/docker run --rm --name vaani-livekit \
+  --network host \
+  -e "LIVEKIT_KEYS=$$VAANI_LIVEKIT_API_KEY: $$VAANI_LIVEKIT_API_SECRET" \
+  -v /home/ubuntu/vaani/infra/livekit/config.yaml:/etc/livekit.yaml:ro \
+  livekit/livekit-server:latest \
+  --config /etc/livekit.yaml \
+  --node-ip 192.222.58.19'
+ExecStop=/usr/bin/docker stop vaani-livekit
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

@@ -241,8 +241,10 @@ app.include_router(auth_module.router)
 app.include_router(auth_module.keys_router)
 
 from . import billing as billing_module  # noqa: E402
+from . import agent_routes as agent_module  # noqa: E402
 
 app.include_router(billing_module.router)
+app.include_router(agent_module.router)
 
 
 class SpeechRequest(BaseModel):

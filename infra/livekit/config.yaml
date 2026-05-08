@@ -1,0 +1,13 @@
+port: 7880
+bind_addresses:
+  - "127.0.0.1"
+rtc:
+  tcp_port: 7881
+  port_range_start: 50000
+  port_range_end: 60000
+  use_external_ip: true
+log_level: info
+# Keys are injected at runtime via the LIVEKIT_KEYS env var
+# (set in /home/ubuntu/vaani/.env, passed by systemd to docker -e).
+# bind_addresses applies only to the HTTP/WebSocket port; RTC media ports
+# bind to all interfaces by default so browsers behind NAT can reach them.

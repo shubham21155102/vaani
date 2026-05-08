@@ -32,3 +32,13 @@ vaani-api.shubhamiitbhu.in {
 		}
 	}
 }
+
+livekit.shubhamiitbhu.in {
+	reverse_proxy 127.0.0.1:7880 {
+		flush_interval -1
+		transport http {
+			read_timeout 24h
+			write_timeout 24h
+		}
+	}
+}
