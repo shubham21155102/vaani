@@ -1,7 +1,8 @@
-import os
 import tempfile
 import unittest
 from pathlib import Path
+
+from fastapi import HTTPException
 
 from apps.api import auth
 
@@ -86,6 +87,49 @@ class AuthTests(unittest.TestCase):
         self.assertIsNone(auth.current_user(_Req()))
         self.assertIsNone(auth.current_user(_Req("Bearer not-a-real-token")))
         self.assertIsNone(auth.current_user(_Req("Basic abc")))
+
+    def test_signup_and_login_flow(self):
+        out = auth.signup(
+            auth.SignupReq(
+                email="new@example.com",
+                password="longpassword",
+                display_name="New User",
+            )
+        )
+        self.assertIn("token", out)
+        self.assertEqual(out["user"]["email"], "new@example.com")
+
+        login_out = auth.login(
+            auth.LoginReq(email="new@example.com", password="longpassword")
+        )
+        self.assertEqual(login_out["user"]["email"], "new@example.com")
+
+    def test_signup_duplicate_email_and_login_invalid_password(self):
+        auth.signup(auth.SignupReq(email="dup@example.com", password="longpassword"))
+        with self.assertRaises(HTTPException) as signup_err:
+            auth.signup(auth.SignupReq(email="dup@example.com", password="longpassword"))
+        self.assertEqual(signup_err.exception.status_code, 409)
+        with self.assertRaises(HTTPException) as login_err:
+            auth.login(auth.LoginReq(email="dup@example.com", password="wrongpass"))
+        self.assertEqual(login_err.exception.status_code, 401)
+
+    def test_keys_lifecycle_create_list_revoke(self):
+        user_id = self._insert_user(email="keys@example.com")
+        user = {"id": user_id, "email": "keys@example.com"}
+
+        created = auth.create_key(auth.CreateKeyReq(name="server"), user=user)
+        self.assertIn("key", created)
+        key_id = created["id"]
+
+        listed = auth.list_keys(user=user)
+        self.assertEqual(len(listed["keys"]), 1)
+        self.assertEqual(listed["keys"][0]["id"], key_id)
+        self.assertNotIn("key", listed["keys"][0])
+
+        revoke_out = auth.revoke_key(key_id, user=user)
+        self.assertEqual(revoke_out["ok"], True)
+        revoke_again = auth.revoke_key(key_id, user=user)
+        self.assertEqual(revoke_again["already_revoked"], True)
 
 
 if __name__ == "__main__":

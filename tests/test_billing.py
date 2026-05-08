@@ -85,6 +85,53 @@ class BillingTests(unittest.TestCase):
             )
         self.assertEqual(ctx.exception.status_code, 400)
 
+    def test_packages_and_list_payments(self):
+        user_id = self._insert_user_and_payment()
+        pkgs = billing.packages()
+        self.assertEqual(pkgs["currency"], "INR")
+        self.assertGreaterEqual(len(pkgs["packages"]), 1)
+
+        payments = billing.list_payments(user={"id": user_id})
+        self.assertEqual(len(payments["payments"]), 1)
+        self.assertEqual(payments["payments"][0]["order_id"], "ord_1")
+
+    def test_checkout_success_stores_payment(self):
+        with auth.db() as c:
+            user_id = c.execute(
+                "INSERT INTO users (email, password_hash, credits) VALUES (?,?,?)",
+                ("checkout@example.com", auth._hash_password("supersecret"), 10),
+            ).lastrowid
+
+        old_post = billing._cf_post
+        old_make = billing._make_order_id
+        billing._make_order_id = lambda _uid: "ord_checkout_1"
+        billing._cf_post = lambda _path, _body: {
+            "cf_order_id": "cf_123",
+            "payment_session_id": "sess_123",
+        }
+        try:
+            out = billing.checkout(
+                billing.CheckoutReq(package_id="starter"),
+                user={
+                    "id": user_id,
+                    "email": "checkout@example.com",
+                    "display_name": "Checkout User",
+                },
+            )
+        finally:
+            billing._cf_post = old_post
+            billing._make_order_id = old_make
+
+        self.assertEqual(out["order_id"], "ord_checkout_1")
+        self.assertEqual(out["payment_session_id"], "sess_123")
+        with auth.db() as c:
+            row = c.execute(
+                "SELECT status, cf_order_id FROM payments WHERE order_id = ?",
+                ("ord_checkout_1",),
+            ).fetchone()
+        self.assertEqual(row["status"], "CREATED")
+        self.assertEqual(row["cf_order_id"], "cf_123")
+
     def test_webhook_success_is_idempotent_and_credits_once(self):
         user_id = self._insert_user_and_payment()
         payload = {
@@ -144,6 +191,36 @@ class BillingTests(unittest.TestCase):
         with auth.db() as c:
             pay_row = c.execute("SELECT status FROM payments WHERE order_id = 'ord_1'").fetchone()
         self.assertEqual(pay_row["status"], "FAILED")
+
+    def test_webhook_rejects_missing_headers_or_invalid_json(self):
+        raw = b'{"type":"PAYMENT_SUCCESS_WEBHOOK"}'
+        with self.assertRaises(HTTPException) as missing:
+            asyncio.run(
+                billing.webhook(
+                    _BodyRequest(raw),
+                    x_webhook_signature=None,
+                    x_webhook_timestamp=None,
+                )
+            )
+        self.assertEqual(missing.exception.status_code, 400)
+
+        ts = "1700000002"
+        bad_raw = b"{not-json"
+        digest = hmac.new(
+            billing.CF_SECRET.encode("utf-8"),
+            (ts + bad_raw.decode("utf-8")).encode("utf-8"),
+            hashlib.sha256,
+        ).digest()
+        sig = base64.b64encode(digest).decode("utf-8")
+        with self.assertRaises(HTTPException) as bad_json:
+            asyncio.run(
+                billing.webhook(
+                    _BodyRequest(bad_raw),
+                    x_webhook_signature=sig,
+                    x_webhook_timestamp=ts,
+                )
+            )
+        self.assertEqual(bad_json.exception.status_code, 400)
 
 
 if __name__ == "__main__":
