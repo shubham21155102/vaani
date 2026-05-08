@@ -1,10 +1,15 @@
 // Themed dropdown matching the Vaani cyberpunk aesthetic.
 // Replaces native <select> so we can style options + groups freely.
 //
+// Renders the open menu into document.body via a Portal so it can never
+// be clipped by a parent stacking context (glass-panel uses backdrop-filter,
+// which creates one — z-index alone can't escape it).
+//
 // Usage:
 //   <Select value={x} onChange={setX} options={[{value, label}]} />
 //   <Select value={x} onChange={setX} groups={[{label:"EN", options:[…]}]} />
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Check, ChevronDown } from "lucide-react";
 
 export interface SelectOption {
@@ -33,6 +38,18 @@ interface SelectProps {
   size?: "sm" | "md";
 }
 
+interface MenuRect {
+  top: number;
+  left: number;
+  width: number;
+  maxHeight: number;
+  placement: "below" | "above";
+}
+
+const MENU_GAP = 8;
+const MENU_MARGIN = 16; // viewport edge breathing room
+const MENU_MAX_HEIGHT = 320;
+
 export function Select({
   value,
   onChange,
@@ -46,7 +63,9 @@ export function Select({
 }: SelectProps) {
   const [open, setOpen] = useState(false);
   const [highlight, setHighlight] = useState(-1);
-  const ref = useRef<HTMLDivElement>(null);
+  const [rect, setRect] = useState<MenuRect | null>(null);
+
+  const wrapperRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
@@ -57,7 +76,48 @@ export function Select({
   );
   const selected = flat.find((o) => o.value === value);
 
-  // When opening, jump highlight to selected so arrow keys feel natural.
+  // Position the portal-rendered menu relative to the trigger.
+  const computeRect = (): MenuRect | null => {
+    const t = triggerRef.current;
+    if (!t) return null;
+    const r = t.getBoundingClientRect();
+    const vh = window.innerHeight;
+    const spaceBelow = vh - r.bottom - MENU_MARGIN;
+    const spaceAbove = r.top - MENU_MARGIN;
+    const wantBelow = spaceBelow >= Math.min(MENU_MAX_HEIGHT, 160) || spaceBelow >= spaceAbove;
+    const placement: "below" | "above" = wantBelow ? "below" : "above";
+    const maxHeight = Math.max(
+      160,
+      Math.min(MENU_MAX_HEIGHT, placement === "below" ? spaceBelow : spaceAbove)
+    );
+    const top =
+      placement === "below" ? r.bottom + MENU_GAP : Math.max(MENU_MARGIN, r.top - MENU_GAP - maxHeight);
+    return {
+      top,
+      left: r.left,
+      width: r.width,
+      maxHeight,
+      placement,
+    };
+  };
+
+  // Recompute when opening, on scroll, on resize.
+  useLayoutEffect(() => {
+    if (!open) {
+      setRect(null);
+      return;
+    }
+    setRect(computeRect());
+    const update = () => setRect(computeRect());
+    window.addEventListener("scroll", update, true);
+    window.addEventListener("resize", update);
+    return () => {
+      window.removeEventListener("scroll", update, true);
+      window.removeEventListener("resize", update);
+    };
+  }, [open]);
+
+  // Highlight selected option when opening, default to 0 if none.
   useEffect(() => {
     if (open) {
       const idx = flat.findIndex((o) => o.value === value);
@@ -65,11 +125,14 @@ export function Select({
     }
   }, [open, flat, value]);
 
-  // Click-outside + keyboard.
+  // Outside click + keyboard.
   useEffect(() => {
     if (!open) return;
     const onClick = (e: MouseEvent) => {
-      if (!ref.current?.contains(e.target as Node)) setOpen(false);
+      const t = e.target as Node;
+      if (wrapperRef.current?.contains(t)) return;
+      if (listRef.current?.contains(t)) return;
+      setOpen(false);
     };
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
@@ -141,7 +204,7 @@ export function Select({
     const isHighlighted = idx === highlight && !opt.disabled;
     return (
       <button
-        key={opt.value}
+        key={`${opt.value}-${idx}`}
         type="button"
         data-idx={idx}
         disabled={opt.disabled}
@@ -156,7 +219,7 @@ export function Select({
           "w-full text-left px-4 py-2.5 flex items-center gap-3 transition-colors",
           "border-l-2",
           isHighlighted
-            ? "bg-accent/10 border-accent text-accent"
+            ? "bg-accent/15 border-accent text-accent"
             : "border-transparent hover:bg-panel-2/80 text-text/90",
           isSelected && !isHighlighted ? "text-accent" : "",
           opt.disabled ? "opacity-40 cursor-not-allowed" : "cursor-pointer",
@@ -189,8 +252,41 @@ export function Select({
     );
   };
 
+  const menu = open && rect ? (
+    <div
+      ref={listRef}
+      role="listbox"
+      style={{
+        position: "fixed",
+        top: rect.top,
+        left: rect.left,
+        width: rect.width,
+        maxHeight: rect.maxHeight,
+        zIndex: 1000,
+      }}
+      className="rounded-xl border border-accent/40 shadow-2xl shadow-black/80 overflow-y-auto bg-[#0d0d0d]/95 backdrop-blur-xl animate-fade-in"
+    >
+      {flat.length === 0 ? (
+        <div className="p-4 text-sm text-muted/60 text-center font-medium">
+          {emptyText}
+        </div>
+      ) : groups ? (
+        groups.map((g) => (
+          <div key={g.label}>
+            <div className="px-4 py-2 text-[10px] font-mono uppercase tracking-widest text-muted/70 border-b border-border/30 bg-panel-2/60 sticky top-0 backdrop-blur-md z-10">
+              {g.label}
+            </div>
+            {g.options.map(renderOption)}
+          </div>
+        ))
+      ) : (
+        options?.map(renderOption)
+      )}
+    </div>
+  ) : null;
+
   return (
-    <div ref={ref} className={`relative ${className}`}>
+    <div ref={wrapperRef} className={`relative ${className}`}>
       <button
         ref={triggerRef}
         type="button"
@@ -230,30 +326,7 @@ export function Select({
         />
       </button>
 
-      {open && (
-        <div
-          ref={listRef}
-          role="listbox"
-          className="absolute z-50 mt-2 w-full glass-panel rounded-xl border border-accent/30 shadow-2xl shadow-black/80 max-h-72 overflow-y-auto animate-fade-in"
-        >
-          {flat.length === 0 ? (
-            <div className="p-4 text-sm text-muted/60 text-center font-medium">
-              {emptyText}
-            </div>
-          ) : groups ? (
-            groups.map((g) => (
-              <div key={g.label}>
-                <div className="px-4 py-2 text-[10px] font-mono uppercase tracking-widest text-muted/70 border-b border-border/30 bg-panel-2/40 sticky top-0 backdrop-blur-md z-10">
-                  {g.label}
-                </div>
-                {g.options.map(renderOption)}
-              </div>
-            ))
-          ) : (
-            options?.map(renderOption)
-          )}
-        </div>
-      )}
+      {menu && createPortal(menu, document.body)}
     </div>
   );
 }
