@@ -73,11 +73,25 @@ export interface Payment {
   paid_at: string | null;
 }
 
+export interface AgentPreset {
+  id: string;
+  name: string;
+  description: string;
+  voice: string;
+}
+
 export const agentApi = {
-  token: (token: string) =>
-    json<{ url: string; token: string; room: string }>("/v1/agent/token", {
+  list: () => json<{ agents: AgentPreset[] }>("/v1/agent/agents"),
+  token: (token: string, agent_id: string = "general") =>
+    json<{
+      url: string;
+      token: string;
+      room: string;
+      agent_id: string;
+    }>("/v1/agent/token", {
       method: "POST",
-      headers: authHeaders(token),
+      headers: { "Content-Type": "application/json", ...authHeaders(token) },
+      body: JSON.stringify({ agent_id }),
     }),
 };
 

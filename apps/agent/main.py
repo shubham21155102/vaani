@@ -24,6 +24,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+from pathlib import Path
 
 import structlog
 from livekit import agents, rtc
@@ -40,6 +41,28 @@ from livekit.agents import (
 from livekit.plugins import openai, silero
 
 from .vaani_plugins import VaaniSTT, VaaniTTS
+
+PRESETS_PATH = Path(__file__).resolve().parents[1] / "shared" / "agent_presets.json"
+
+
+def _load_presets() -> dict:
+    try:
+        with open(PRESETS_PATH, encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+PRESETS = _load_presets()
+DEFAULT_PRESET = {
+    "name": "Vaani Assistant",
+    "voice": "en-emma_woman",
+    "instructions": (
+        "You are Vaani, a friendly voice assistant. "
+        "Speak in short, natural sentences."
+    ),
+    "greeting": "Greet the user warmly and ask how you can help.",
+}
 
 logging.getLogger("livekit").setLevel(logging.INFO)
 log = structlog.get_logger()
@@ -69,6 +92,18 @@ async def entrypoint(ctx: JobContext) -> None:
         log.error("missing_groq_key")
         raise RuntimeError("VAANI_GROQ_API_KEY env var is required")
 
+    # Wait for the user to join, then read their metadata for agent_id.
+    participant = await ctx.wait_for_participant()
+    agent_id = "general"
+    try:
+        if participant.metadata:
+            agent_id = json.loads(participant.metadata).get("agent_id", "general")
+    except (json.JSONDecodeError, AttributeError):
+        pass
+
+    preset = PRESETS.get(agent_id) or DEFAULT_PRESET
+    log.info("agent_preset_selected", agent_id=agent_id, voice=preset.get("voice"))
+
     session = AgentSession(
         stt=VaaniSTT(),
         llm=openai.LLM(
@@ -76,7 +111,7 @@ async def entrypoint(ctx: JobContext) -> None:
             base_url=GROQ_BASE,
             api_key=GROQ_API_KEY,
         ),
-        tts=VaaniTTS(voice="en-emma_woman"),
+        tts=VaaniTTS(voice=preset.get("voice", "en-emma_woman")),
         vad=silero.VAD.load(),
     )
 
@@ -115,16 +150,13 @@ async def entrypoint(ctx: JobContext) -> None:
             _publish("assistant", str(text))
 
     await session.start(
-        agent=Agent(instructions=AGENT_PROMPT),
+        agent=Agent(instructions=preset.get("instructions", DEFAULT_PRESET["instructions"])),
         room=ctx.room,
         room_input_options=RoomInputOptions(),
     )
 
     await session.generate_reply(
-        instructions=(
-            "Greet the user warmly in one sentence and ask how you can help. "
-            "Mention you can answer questions about Vaani."
-        )
+        instructions=preset.get("greeting", DEFAULT_PRESET["greeting"])
     )
 
 

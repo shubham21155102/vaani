@@ -9,7 +9,7 @@ import {
   type LocalParticipant,
 } from "livekit-client";
 import { Mic, MicOff, Phone, PhoneOff, Loader2 } from "lucide-react";
-import { agentApi } from "../lib/api";
+import { agentApi, type AgentPreset } from "../lib/api";
 import { useAuth } from "../lib/auth";
 
 type Status = "idle" | "connecting" | "connected" | "ending" | "error";
@@ -27,11 +27,14 @@ export function Agent() {
   const [muted, setMuted] = useState(false);
   const [agentJoined, setAgentJoined] = useState(false);
   const [transcript, setTranscript] = useState<TranscriptLine[]>([]);
+  const [agents, setAgents] = useState<AgentPreset[]>([]);
+  const [agentId, setAgentId] = useState<string>("general");
 
   const roomRef = useRef<Room | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
+    agentApi.list().then((r) => setAgents(r.agents)).catch(() => {});
     return () => {
       if (roomRef.current) {
         roomRef.current.disconnect();
@@ -48,7 +51,7 @@ export function Agent() {
     setAgentJoined(false);
 
     try {
-      const { url, token: lkToken } = await agentApi.token(token);
+      const { url, token: lkToken } = await agentApi.token(token, agentId);
       const room = new Room({
         adaptiveStream: true,
         dynacast: true,
@@ -139,6 +142,33 @@ export function Agent() {
       <p className="text-muted mt-1">
         Talk to Vaani in real time. Powered by LiveKit, Groq Qwen3-32B, and our own VibeVoice.
       </p>
+
+      <div className="mt-6 p-5 bg-panel border border-border rounded-xl">
+        <label className="block text-xs uppercase tracking-wide text-muted mb-2">
+          Choose an agent
+        </label>
+        <select
+          value={agentId}
+          onChange={(e) => setAgentId(e.target.value)}
+          disabled={status === "connected" || status === "connecting"}
+          className="w-full bg-panel-2 border border-border rounded-lg p-2.5 focus:outline-none focus:border-accent disabled:opacity-60"
+        >
+          {agents.length === 0 ? (
+            <option value="general">Vaani Assistant</option>
+          ) : (
+            agents.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.name} — {a.description}
+              </option>
+            ))
+          )}
+        </select>
+        {agents.find((a) => a.id === agentId)?.voice && (
+          <p className="text-xs text-muted mt-1">
+            voice: <code className="font-mono">{agents.find((a) => a.id === agentId)?.voice}</code>
+          </p>
+        )}
+      </div>
 
       <div className="mt-6 p-6 bg-panel border border-border rounded-xl">
         <div className="flex items-center gap-4">
