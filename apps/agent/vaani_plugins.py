@@ -11,6 +11,7 @@ over loopback (no Caddy roundtrip, no auth needed).
 from __future__ import annotations
 
 import io
+import uuid
 import wave
 from typing import Optional
 
@@ -147,6 +148,9 @@ class _VaaniSynth(tts.ChunkedStream):
     ) -> None:
         super().__init__(tts=tts, input_text=input_text, conn_options=conn_options)
         self._vtts = tts
+        # livekit-agents 1.5 doesn't auto-populate _request_id on ChunkedStream;
+        # generate one ourselves and pass to AudioEmitter.initialize().
+        self._req_id = uuid.uuid4().hex
 
     async def _run(self, output_emitter: "tts.AudioEmitter") -> None:
         text = self._input_text
@@ -176,7 +180,7 @@ class _VaaniSynth(tts.ChunkedStream):
             return
 
         output_emitter.initialize(
-            request_id=self._request_id,
+            request_id=self._req_id,
             sample_rate=sample_rate,
             num_channels=num_channels,
             mime_type="audio/pcm",

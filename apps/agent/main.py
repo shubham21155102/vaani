@@ -97,14 +97,18 @@ async def entrypoint(ctx: JobContext) -> None:
     @session.on("conversation_item_added")
     def _on_item(ev: "ConversationItemAddedEvent") -> None:
         item = ev.item
-        if item.role == "assistant":
-            text = (
-                item.text_content
-                if hasattr(item, "text_content")
-                else getattr(item, "content", "")
-            )
-            if text:
-                _publish("assistant", str(text))
+        # The same event fires for AgentHandoff and other shapes that have no
+        # `role` — only forward real chat messages.
+        role = getattr(item, "role", None)
+        if role != "assistant":
+            return
+        text = (
+            getattr(item, "text_content", None)
+            or getattr(item, "content", None)
+            or ""
+        )
+        if text:
+            _publish("assistant", str(text))
 
     await session.start(
         agent=Agent(instructions=AGENT_PROMPT),
