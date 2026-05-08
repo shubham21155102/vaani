@@ -240,6 +240,10 @@ auth_module.init_db()
 app.include_router(auth_module.router)
 app.include_router(auth_module.keys_router)
 
+from . import billing as billing_module  # noqa: E402
+
+app.include_router(billing_module.router)
+
 
 class SpeechRequest(BaseModel):
     input: str = Field(..., min_length=1, max_length=4000)

@@ -1,4 +1,4 @@
-export const API_BASE =
+export const API_BASE: string =
   (import.meta.env.VITE_API_BASE as string | undefined)?.replace(/\/+$/, "") ||
   "https://vaani-api.shubhamiitbhu.in";
 
@@ -52,6 +52,43 @@ export const keysApi = {
   revoke: (token: string, id: number) =>
     json<{ ok: boolean }>(`/v1/keys/${id}`, {
       method: "DELETE",
+      headers: authHeaders(token),
+    }),
+};
+
+export interface Package {
+  id: string;
+  credits: number;
+  amount_inr: number;
+  label: string;
+}
+
+export interface Payment {
+  order_id: string;
+  package_id: string;
+  amount_inr: number;
+  credits: number;
+  status: string;
+  created_at: string;
+  paid_at: string | null;
+}
+
+export const billingApi = {
+  packages: () =>
+    json<{ packages: Package[]; currency: string }>("/v1/billing/packages"),
+  checkout: (token: string, package_id: string) =>
+    json<{
+      order_id: string;
+      payment_session_id: string;
+      amount_inr: number;
+      credits: number;
+    }>("/v1/billing/checkout", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders(token) },
+      body: JSON.stringify({ package_id }),
+    }),
+  payments: (token: string) =>
+    json<{ payments: Payment[] }>("/v1/billing/payments", {
       headers: authHeaders(token),
     }),
 };

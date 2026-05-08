@@ -105,6 +105,21 @@ def init_db() -> None:
                 created_at  TEXT NOT NULL DEFAULT (datetime('now'))
             );
             CREATE INDEX IF NOT EXISTS idx_uvoices_user_id ON user_voices(user_id);
+
+            CREATE TABLE IF NOT EXISTS payments (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                order_id     TEXT UNIQUE NOT NULL,
+                cf_order_id  TEXT,
+                package_id   TEXT NOT NULL,
+                amount_inr   REAL NOT NULL,
+                credits      INTEGER NOT NULL,
+                status       TEXT NOT NULL DEFAULT 'CREATED',
+                created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+                paid_at      TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_payments_user ON payments(user_id);
+            CREATE INDEX IF NOT EXISTS idx_payments_order ON payments(order_id);
             """
         )
     log.info("auth_db_ready", path=str(DB_PATH))
