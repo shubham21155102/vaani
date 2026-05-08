@@ -217,6 +217,7 @@ from . import auth as auth_module  # noqa: E402
 
 auth_module.init_db()
 app.include_router(auth_module.router)
+app.include_router(auth_module.keys_router)
 
 
 class SpeechRequest(BaseModel):

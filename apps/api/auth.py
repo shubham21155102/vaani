@@ -12,7 +12,9 @@ DB:  ~/vaani/data/vaani.sqlite3 (auto-created).
 """
 from __future__ import annotations
 
+import hashlib
 import os
+import secrets
 import sqlite3
 import time
 from contextlib import contextmanager
@@ -80,9 +82,69 @@ def init_db() -> None:
             );
             CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
             CREATE INDEX IF NOT EXISTS idx_users_google_sub ON users(google_sub);
+
+            CREATE TABLE IF NOT EXISTS api_keys (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                name         TEXT NOT NULL,
+                key_hash     TEXT UNIQUE NOT NULL,
+                key_display  TEXT NOT NULL,
+                last_used_at TEXT,
+                created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+                revoked_at   TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_keys_user_id ON api_keys(user_id);
+            CREATE INDEX IF NOT EXISTS idx_keys_hash ON api_keys(key_hash);
             """
         )
     log.info("auth_db_ready", path=str(DB_PATH))
+
+
+# ---------- API keys ---------------------------------------------------------
+
+API_KEY_PREFIX = "vsk_live_"
+
+
+def _generate_api_key() -> tuple[str, str, str]:
+    """Return (full_key_show_once, display_string, sha256_hash).
+
+    Format: vsk_live_<43 url-safe chars>. Stored as sha256 — keys are
+    high-entropy random, no need for bcrypt. Display is the prefix +
+    last 4 chars (`vsk_live_abc…wxyz`) for the dashboard.
+    """
+    rand = secrets.token_urlsafe(32)
+    full = f"{API_KEY_PREFIX}{rand}"
+    head = full[: len(API_KEY_PREFIX) + 4]
+    tail = full[-4:]
+    display = f"{head}…{tail}"
+    h = hashlib.sha256(full.encode("utf-8")).hexdigest()
+    return full, display, h
+
+
+def _hash_api_key(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def _user_from_api_key(token: str) -> Optional[dict]:
+    if not token.startswith(API_KEY_PREFIX):
+        return None
+    h = _hash_api_key(token)
+    with db() as c:
+        row = c.execute(
+            """
+            SELECT u.* FROM api_keys k
+            JOIN users u ON u.id = k.user_id
+            WHERE k.key_hash = ? AND k.revoked_at IS NULL
+            """,
+            (h,),
+        ).fetchone()
+        if row is None:
+            return None
+        c.execute(
+            "UPDATE api_keys SET last_used_at = datetime('now') WHERE key_hash = ?",
+            (h,),
+        )
+    return _row_to_user(row)
 
 
 # ---------- helpers ----------------------------------------------------------
@@ -145,7 +207,11 @@ class GoogleReq(BaseModel):
 # ---------- dependency -------------------------------------------------------
 
 def current_user(request: Request) -> Optional[dict]:
-    """Return the user dict if a valid Bearer token is present, else None.
+    """Return the user dict if a valid Bearer credential is present, else None.
+
+    Accepts either:
+      - a JWT issued by /v1/auth/{login,signup,google}  (web sessions)
+      - a server-side API key issued by /v1/keys        (programmatic use)
 
     Routes that require auth should raise themselves; this helper is a soft
     accessor used by /me and (later) by metering middleware."""
@@ -153,6 +219,10 @@ def current_user(request: Request) -> Optional[dict]:
     if not auth.lower().startswith("bearer "):
         return None
     token = auth[7:].strip()
+
+    if token.startswith(API_KEY_PREFIX):
+        return _user_from_api_key(token)
+
     try:
         payload = _decode_token(token)
     except jwt.PyJWTError:
@@ -259,4 +329,70 @@ def me(user: dict = Depends(required_user)):
 @router.post("/logout")
 def logout():
     # Stateless JWT — client drops the token. Reserved for future blocklist.
+    return {"ok": True}
+
+
+# ---------- /v1/keys ---------------------------------------------------------
+
+keys_router = APIRouter(prefix="/v1/keys", tags=["keys"])
+
+
+class CreateKeyReq(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+
+
+def _row_to_key(row: sqlite3.Row, *, full_key: Optional[str] = None) -> dict:
+    return {
+        "id": row["id"],
+        "name": row["name"],
+        "display": row["key_display"],
+        "created_at": row["created_at"],
+        "last_used_at": row["last_used_at"],
+        "revoked_at": row["revoked_at"],
+        # `key` only present at creation, never on later list calls.
+        **({"key": full_key} if full_key else {}),
+    }
+
+
+@keys_router.post("")
+def create_key(req: CreateKeyReq, user: dict = Depends(required_user)):
+    full, display, key_hash = _generate_api_key()
+    with db() as c:
+        cur = c.execute(
+            "INSERT INTO api_keys (user_id, name, key_hash, key_display) VALUES (?,?,?,?)",
+            (user["id"], req.name, key_hash, display),
+        )
+        row = c.execute(
+            "SELECT * FROM api_keys WHERE id = ?", (cur.lastrowid,)
+        ).fetchone()
+    log.info("api_key_created", user_id=user["id"], key_id=row["id"])
+    return _row_to_key(row, full_key=full)
+
+
+@keys_router.get("")
+def list_keys(user: dict = Depends(required_user)):
+    with db() as c:
+        rows = c.execute(
+            "SELECT * FROM api_keys WHERE user_id = ? ORDER BY created_at DESC",
+            (user["id"],),
+        ).fetchall()
+    return {"keys": [_row_to_key(r) for r in rows]}
+
+
+@keys_router.delete("/{key_id}")
+def revoke_key(key_id: int, user: dict = Depends(required_user)):
+    with db() as c:
+        row = c.execute(
+            "SELECT * FROM api_keys WHERE id = ? AND user_id = ?",
+            (key_id, user["id"]),
+        ).fetchone()
+        if not row:
+            raise HTTPException(404, "key not found")
+        if row["revoked_at"] is not None:
+            return {"ok": True, "already_revoked": True}
+        c.execute(
+            "UPDATE api_keys SET revoked_at = datetime('now') WHERE id = ?",
+            (key_id,),
+        )
+    log.info("api_key_revoked", user_id=user["id"], key_id=key_id)
     return {"ok": True}

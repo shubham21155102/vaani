@@ -23,6 +23,36 @@ async function json<T>(path: string, init?: RequestInit): Promise<T> {
   return r.json();
 }
 
+function authHeaders(token: string | null): HeadersInit {
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+export interface ApiKey {
+  id: number;
+  name: string;
+  display: string;
+  created_at: string;
+  last_used_at: string | null;
+  revoked_at: string | null;
+  key?: string; // only on create
+}
+
+export const keysApi = {
+  list: (token: string) =>
+    json<{ keys: ApiKey[] }>("/v1/keys", { headers: authHeaders(token) }),
+  create: (token: string, name: string) =>
+    json<ApiKey>("/v1/keys", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders(token) },
+      body: JSON.stringify({ name }),
+    }),
+  revoke: (token: string, id: number) =>
+    json<{ ok: boolean }>(`/v1/keys/${id}`, {
+      method: "DELETE",
+      headers: authHeaders(token),
+    }),
+};
+
 export const api = {
   info: () => json<Info>("/api/info"),
   voices: () => json<{ voices: Voice[] }>("/v1/voices"),
