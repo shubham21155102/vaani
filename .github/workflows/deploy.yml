@@ -1,0 +1,81 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Build SPA
+        working-directory: apps/studio
+        run: |
+          bun install --frozen-lockfile
+          bun run build
+
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H "${{ secrets.DEPLOY_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Rsync application code
+        run: |
+          rsync -az --delete \
+            --exclude='__pycache__/' \
+            --exclude='*.pyc' \
+            --exclude='studio/node_modules/' \
+            --exclude='studio/dist/' \
+            --exclude='studio/.env' \
+            --exclude='studio/*.tsbuildinfo' \
+            -e "ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=no" \
+            apps/ \
+            "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:/home/ubuntu/vaani/apps/"
+
+      - name: Rsync infra
+        run: |
+          rsync -az --delete \
+            -e "ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=no" \
+            infra/ \
+            "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:/home/ubuntu/vaani/infra/"
+
+      - name: Rsync deploy scripts
+        run: |
+          rsync -az --chmod=Du=rwx,go=rx,Fu=rwx,go=rx \
+            -e "ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=no" \
+            scripts/ \
+            "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:/home/ubuntu/vaani/scripts/"
+
+      - name: Rsync built SPA
+        run: |
+          rsync -az --delete \
+            -e "ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=no" \
+            apps/studio/dist/ \
+            "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:/home/ubuntu/vaani/apps/studio/dist/"
+
+      - name: Run remote deploy script
+        run: |
+          ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=no \
+            "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}" \
+            "bash /home/ubuntu/vaani/scripts/deploy_remote.sh"
+
+      - name: Smoke test public endpoints
+        run: |
+          set -e
+          curl -fsS https://vaani-api.shubhamiitbhu.in/api/info | grep -q '"ready":true'
+          curl -fsSI https://vaani.shubhamiitbhu.in/ | head -1 | grep -q "200"
+          echo "smoke ok"
