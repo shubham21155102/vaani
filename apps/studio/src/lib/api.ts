@@ -82,16 +82,21 @@ export interface AgentPreset {
 
 export const agentApi = {
   list: () => json<{ agents: AgentPreset[] }>("/v1/agent/agents"),
-  token: (token: string, agent_id: string = "general") =>
+  token: (
+    token: string,
+    agent_id: string = "general",
+    voice?: string | null
+  ) =>
     json<{
       url: string;
       token: string;
       room: string;
       agent_id: string;
+      voice?: string;
     }>("/v1/agent/token", {
       method: "POST",
       headers: { "Content-Type": "application/json", ...authHeaders(token) },
-      body: JSON.stringify({ agent_id }),
+      body: JSON.stringify({ agent_id, voice: voice || undefined }),
     }),
 };
 

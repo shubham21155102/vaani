@@ -9,7 +9,7 @@ import {
   type LocalParticipant,
 } from "livekit-client";
 import { Mic, MicOff, Phone, PhoneOff, Loader2, Cpu } from "lucide-react";
-import { agentApi, type AgentPreset } from "../lib/api";
+import { agentApi, api, type AgentPreset, type Voice } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { useWhisper } from "../lib/use-whisper";
 
@@ -30,8 +30,16 @@ export function Agent() {
   const [transcript, setTranscript] = useState<TranscriptLine[]>([]);
   const [agents, setAgents] = useState<AgentPreset[]>([]);
   const [agentId, setAgentId] = useState<string>("general");
+  const [voices, setVoices] = useState<Voice[]>([]);
+  const [voiceOverride, setVoiceOverride] = useState<string>("");
   const [browserSttEnabled, setBrowserSttEnabled] = useState<boolean>(false);
   const [webgpuSupported, setWebgpuSupported] = useState<boolean>(false);
+
+  // When the user changes the agent, reset the voice override to that
+  // agent's default. Empty string means "use preset default" on the server.
+  useEffect(() => {
+    setVoiceOverride("");
+  }, [agentId]);
 
   const roomRef = useRef<Room | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -63,13 +71,22 @@ export function Agent() {
 
   useEffect(() => {
     agentApi.list().then((r) => setAgents(r.agents)).catch(() => {});
+    api
+      .voices(token)
+      .then((r) =>
+        setVoices(
+          [...r.voices].sort((a, b) => a.id.localeCompare(b.id))
+        )
+      )
+      .catch(() => {});
     return () => {
       if (roomRef.current) {
         roomRef.current.disconnect();
         roomRef.current = null;
       }
     };
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token]);
 
   async function connect() {
     if (!token) return;
@@ -79,7 +96,11 @@ export function Agent() {
     setAgentJoined(false);
 
     try {
-      const { url, token: lkToken } = await agentApi.token(token, agentId);
+      const { url, token: lkToken } = await agentApi.token(
+        token,
+        agentId,
+        voiceOverride || null
+      );
       const room = new Room({
         adaptiveStream: true,
         dynacast: true,
@@ -205,11 +226,44 @@ export function Agent() {
             ))
           )}
         </select>
-        {agents.find((a) => a.id === agentId)?.voice && (
-          <p className="text-xs text-muted mt-1">
-            voice: <code className="font-mono">{agents.find((a) => a.id === agentId)?.voice}</code>
-          </p>
-        )}
+        <label className="block text-xs uppercase tracking-wide text-muted mt-4 mb-2">
+          Voice
+        </label>
+        <select
+          value={voiceOverride}
+          onChange={(e) => setVoiceOverride(e.target.value)}
+          disabled={status === "connected" || status === "connecting"}
+          className="w-full bg-panel-2 border border-border rounded-lg p-2.5 focus:outline-none focus:border-accent disabled:opacity-60"
+        >
+          <option value="">
+            Default for this agent (
+            {agents.find((a) => a.id === agentId)?.voice || "en-emma_woman"})
+          </option>
+          {(() => {
+            const groups: Record<string, Voice[]> = {};
+            for (const v of voices) {
+              const lang = (v.language || v.id.split("-")[0]).toUpperCase();
+              (groups[lang] ||= []).push(v);
+            }
+            return Object.entries(groups)
+              .sort(([a], [b]) => a.localeCompare(b))
+              .map(([lang, list]) => (
+                <optgroup key={lang} label={lang}>
+                  {list.map((v) => (
+                    <option key={v.id} value={v.id}>
+                      {v.stem}
+                      {v.user ? "  ★" : ""}
+                    </option>
+                  ))}
+                </optgroup>
+              ));
+          })()}
+        </select>
+        <p className="text-xs text-muted mt-1">
+          {voiceOverride
+            ? "Overriding the agent's default voice."
+            : "Using this agent's default voice."}
+        </p>
 
         <div className="mt-5 pt-5 border-t border-border">
           <label className="flex items-start gap-3 cursor-pointer">

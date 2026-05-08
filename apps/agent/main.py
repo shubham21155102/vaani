@@ -92,17 +92,26 @@ async def entrypoint(ctx: JobContext) -> None:
         log.error("missing_groq_key")
         raise RuntimeError("VAANI_GROQ_API_KEY env var is required")
 
-    # Wait for the user to join, then read their metadata for agent_id.
+    # Wait for the user to join, then read their metadata for agent_id + voice.
     participant = await ctx.wait_for_participant()
     agent_id = "general"
+    voice_override: str | None = None
     try:
         if participant.metadata:
-            agent_id = json.loads(participant.metadata).get("agent_id", "general")
+            meta = json.loads(participant.metadata)
+            agent_id = meta.get("agent_id", "general")
+            voice_override = (meta.get("voice") or "").strip() or None
     except (json.JSONDecodeError, AttributeError):
         pass
 
     preset = PRESETS.get(agent_id) or DEFAULT_PRESET
-    log.info("agent_preset_selected", agent_id=agent_id, voice=preset.get("voice"))
+    voice = voice_override or preset.get("voice", "en-emma_woman")
+    log.info(
+        "agent_preset_selected",
+        agent_id=agent_id,
+        voice=voice,
+        voice_override=bool(voice_override),
+    )
 
     session = AgentSession(
         # STT: Groq Whisper for ~200ms turn latency. VibeVoice-ASR (long-form,
@@ -118,7 +127,7 @@ async def entrypoint(ctx: JobContext) -> None:
             base_url=GROQ_BASE,
             api_key=GROQ_API_KEY,
         ),
-        tts=VaaniTTS(voice=preset.get("voice", "en-emma_woman")),
+        tts=VaaniTTS(voice=voice),
         vad=silero.VAD.load(),
     )
 

@@ -44,6 +44,7 @@ router = APIRouter(prefix="/v1/agent", tags=["agent"])
 
 class TokenReq(BaseModel):
     agent_id: str = Field(default="general", min_length=1, max_length=40)
+    voice: str | None = Field(default=None, max_length=80)
 
 
 @router.get("/agents")
@@ -74,6 +75,7 @@ def token(
     agent_id = (req.agent_id if req else "general")
     if agent_id not in presets:
         agent_id = "general"
+    voice_override = (req.voice or "").strip() if req else ""
 
     room_name = f"vaani-{user['id']}-{agent_id}"
     grants = lk_api.VideoGrants(
@@ -83,11 +85,14 @@ def token(
         can_subscribe=True,
         can_publish_data=True,
     )
+    metadata: dict = {"agent_id": agent_id}
+    if voice_override:
+        metadata["voice"] = voice_override
     jwt = (
         lk_api.AccessToken(LK_API_KEY, LK_API_SECRET)
         .with_identity(f"user{user['id']}")
         .with_name(user.get("display_name") or user["email"].split("@")[0])
-        .with_metadata(json.dumps({"agent_id": agent_id}))
+        .with_metadata(json.dumps(metadata))
         .with_grants(grants)
         .with_ttl(timedelta(hours=1))
         .to_jwt()
@@ -97,10 +102,12 @@ def token(
         user_id=user["id"],
         room=room_name,
         agent_id=agent_id,
+        voice=voice_override or None,
     )
     return {
         "url": LK_URL,
         "token": jwt,
         "room": room_name,
         "agent_id": agent_id,
+        "voice": voice_override or presets.get(agent_id, {}).get("voice"),
     }
