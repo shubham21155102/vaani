@@ -22,6 +22,10 @@ jobs:
 
       - name: Build SPA
         working-directory: apps/studio
+        env:
+          VITE_API_BASE: https://vaani-api.shubhamiitbhu.in
+          VITE_GOOGLE_CLIENT_ID: 546289365103-n34acbu7chavctqf2p15vov4alvdaeq4.apps.googleusercontent.com
+          VITE_CASHFREE_MODE: production
         run: |
           bun install --frozen-lockfile
           bun run build
