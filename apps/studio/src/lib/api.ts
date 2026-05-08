@@ -5,6 +5,9 @@ export const API_BASE =
 export interface Voice {
   id: string;
   stem: string;
+  language?: string;
+  user?: boolean;
+  created_at?: string;
 }
 
 export interface Info {
@@ -53,14 +56,52 @@ export const keysApi = {
     }),
 };
 
+export const voicesApi = {
+  list: (token: string | null) =>
+    json<{ voices: Voice[] }>("/v1/voices", {
+      headers: authHeaders(token),
+    }),
+  async upload(token: string, name: string, file: File): Promise<Voice> {
+    const fd = new FormData();
+    fd.append("name", name);
+    fd.append("file", file);
+    const r = await fetch(`${API_BASE}/v1/voices/upload`, {
+      method: "POST",
+      headers: authHeaders(token),
+      body: fd,
+    });
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({ detail: r.statusText }));
+      throw new Error(err.detail || `HTTP ${r.status}`);
+    }
+    return r.json();
+  },
+  delete: (token: string, voiceId: string) =>
+    json<{ ok: boolean }>(`/v1/voices/${encodeURIComponent(voiceId)}`, {
+      method: "DELETE",
+      headers: authHeaders(token),
+    }),
+};
+
 export const api = {
   info: () => json<Info>("/api/info"),
-  voices: () => json<{ voices: Voice[] }>("/v1/voices"),
+  voices: (token?: string | null) =>
+    json<{ voices: Voice[] }>("/v1/voices", {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    }),
 
-  async speech(input: string, voice: string, cfg_scale = 1.5): Promise<Blob> {
+  async speech(
+    input: string,
+    voice: string,
+    cfg_scale = 1.5,
+    token?: string | null
+  ): Promise<Blob> {
     const r = await fetch(`${API_BASE}/v1/audio/speech`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
       body: JSON.stringify({ input, voice, cfg_scale, response_format: "wav" }),
     });
     if (!r.ok) {

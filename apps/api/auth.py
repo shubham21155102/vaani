@@ -95,6 +95,16 @@ def init_db() -> None:
             );
             CREATE INDEX IF NOT EXISTS idx_keys_user_id ON api_keys(user_id);
             CREATE INDEX IF NOT EXISTS idx_keys_hash ON api_keys(key_hash);
+
+            CREATE TABLE IF NOT EXISTS user_voices (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                name        TEXT NOT NULL,
+                voice_id    TEXT UNIQUE NOT NULL,
+                file_path   TEXT NOT NULL,
+                created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_uvoices_user_id ON user_voices(user_id);
             """
         )
     log.info("auth_db_ready", path=str(DB_PATH))

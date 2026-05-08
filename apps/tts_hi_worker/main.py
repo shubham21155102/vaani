@@ -77,10 +77,17 @@ class Engine:
         self.ready = True
 
     def synthesize(self, text: str, voice_id: str, cfg_scale: float) -> bytes:
-        key = voice_id.lower()
-        if key not in self.voices:
-            raise KeyError(voice_id)
-        voice_path = self.voices[key]
+        # voice_id is either a preset key ("hi-priya_woman") or an absolute
+        # path to a raw .wav (used for user-uploaded cloned voices).
+        if voice_id.startswith("/"):
+            voice_path = voice_id
+            if not os.path.isfile(voice_path):
+                raise FileNotFoundError(voice_path)
+        else:
+            key = voice_id.lower()
+            if key not in self.voices:
+                raise KeyError(voice_id)
+            voice_path = self.voices[key]
 
         # Single-speaker script format expected by the full TTS model.
         script = f"Speaker 1: {text}"
@@ -146,7 +153,7 @@ app.add_middleware(
 
 class SpeechRequest(BaseModel):
     input: str = Field(..., min_length=1, max_length=4000)
-    voice: str = Field(default="hi-priya_woman")
+    voice: str = Field(default="hi-priya_woman")  # preset key or absolute .wav path
     cfg_scale: float = Field(default=1.3, ge=0.5, le=3.0)
 
 
@@ -171,7 +178,7 @@ def list_voices():
 async def create_speech(req: SpeechRequest):
     if not engine.ready:
         raise HTTPException(503, "model still loading")
-    if req.voice.lower() not in engine.voices:
+    if not req.voice.startswith("/") and req.voice.lower() not in engine.voices:
         raise HTTPException(
             400,
             f"unknown voice '{req.voice}'. See GET /v1/voices.",

@@ -18,6 +18,7 @@ import glob
 import io
 import logging
 import os
+import re
 import tempfile
 import time
 import urllib.request
@@ -27,7 +28,15 @@ from pathlib import Path
 
 import torch
 import structlog
-from fastapi import FastAPI, HTTPException
+from fastapi import (
+    Depends,
+    FastAPI,
+    File,
+    Form,
+    HTTPException,
+    Request,
+    UploadFile,
+)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field
@@ -47,10 +56,18 @@ VOICES_DIR = os.environ.get(
     "VAANI_VOICES_DIR",
     os.path.expanduser("~/vaani/external/VibeVoice/demo/voices/streaming_model"),
 )
+from typing import Optional  # noqa: E402
+
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 SAMPLE_RATE = 24000
 
 HI_WORKER_URL = os.environ.get("VAANI_HI_WORKER", "http://127.0.0.1:8003")
+USER_VOICES_DIR = Path(
+    os.environ.get("VAANI_USER_VOICES_DIR", "/home/ubuntu/vaani/data/voices")
+)
+MAX_VOICE_BYTES = 15 * 1024 * 1024  # 15 MB
+MAX_VOICES_PER_USER = 20
+SLUG_RE = re.compile(r"[^a-z0-9]+")
 
 
 def _scan_voices(voices_dir: str) -> dict[str, str]:
@@ -273,25 +290,134 @@ def _fetch_hi_voices() -> list[dict]:
         return []
 
 
+def _slugify(s: str) -> str:
+    out = SLUG_RE.sub("-", s.lower()).strip("-")
+    return out or "voice"
+
+
+def _user_voices(user_id: int) -> list[dict]:
+    with auth_module.db() as c:
+        rows = c.execute(
+            "SELECT * FROM user_voices WHERE user_id = ? ORDER BY created_at DESC",
+            (user_id,),
+        ).fetchall()
+    return [
+        {
+            "id": r["voice_id"],
+            "stem": r["name"],
+            "language": "custom",
+            "user": True,
+            "created_at": r["created_at"],
+        }
+        for r in rows
+    ]
+
+
+def _lookup_user_voice(voice_id: str, user_id: int) -> Optional[str]:
+    """Return the file path if this user owns this voice, else None."""
+    with auth_module.db() as c:
+        row = c.execute(
+            "SELECT file_path FROM user_voices WHERE voice_id = ? AND user_id = ?",
+            (voice_id, user_id),
+        ).fetchone()
+    return row["file_path"] if row else None
+
+
 @app.get("/v1/voices")
-def list_voices():
+def list_voices(request: Request):
     local = [
         {"id": vid, "stem": Path(p).stem, "language": vid.split("-")[0]}
         for vid, p in sorted(engine.voices.items())
         if vid == Path(p).stem.lower()  # de-dupe: only canonical IDs
     ]
-    return {"voices": local + _fetch_hi_voices()}
+    voices = local + _fetch_hi_voices()
+    user = auth_module.current_user(request)
+    if user:
+        voices = voices + _user_voices(user["id"])
+    return {"voices": voices}
 
 
-def _proxy_to_hi(req: "SpeechRequest") -> bytes:
+@app.post("/v1/voices/upload")
+async def upload_voice(
+    name: str = Form(..., min_length=1, max_length=40),
+    file: UploadFile = File(...),
+    user: dict = Depends(auth_module.required_user),
+):
+    raw = await file.read()
+    if not raw:
+        raise HTTPException(400, "empty file")
+    if len(raw) > MAX_VOICE_BYTES:
+        raise HTTPException(413, f"file exceeds {MAX_VOICE_BYTES // 1024 // 1024} MB cap")
+    if not raw.startswith(b"RIFF") or b"WAVE" not in raw[:16]:
+        raise HTTPException(400, "expected a .wav (RIFF/WAVE) file")
+
+    with auth_module.db() as c:
+        count = c.execute(
+            "SELECT COUNT(*) AS n FROM user_voices WHERE user_id = ?", (user["id"],)
+        ).fetchone()["n"]
+    if count >= MAX_VOICES_PER_USER:
+        raise HTTPException(429, f"per-user voice limit ({MAX_VOICES_PER_USER}) reached")
+
+    base_slug = _slugify(name)
+    user_dir = USER_VOICES_DIR / f"user{user['id']}"
+    user_dir.mkdir(parents=True, exist_ok=True)
+
+    slug = base_slug
+    voice_id = f"user{user['id']}-{slug}"
+    n = 2
+    while (user_dir / f"{slug}.wav").exists() or _lookup_user_voice(voice_id, user["id"]):
+        slug = f"{base_slug}-{n}"
+        voice_id = f"user{user['id']}-{slug}"
+        n += 1
+
+    out_path = user_dir / f"{slug}.wav"
+    out_path.write_bytes(raw)
+
+    with auth_module.db() as c:
+        c.execute(
+            "INSERT INTO user_voices (user_id, name, voice_id, file_path) VALUES (?,?,?,?)",
+            (user["id"], name, voice_id, str(out_path)),
+        )
+
+    log.info(
+        "voice_uploaded",
+        user_id=user["id"],
+        voice_id=voice_id,
+        bytes=len(raw),
+    )
+    return {
+        "id": voice_id,
+        "stem": name,
+        "language": "custom",
+        "user": True,
+    }
+
+
+@app.delete("/v1/voices/{voice_id}")
+def delete_voice(
+    voice_id: str, user: dict = Depends(auth_module.required_user)
+):
+    path = _lookup_user_voice(voice_id, user["id"])
+    if not path:
+        raise HTTPException(404, "voice not found")
+    try:
+        os.unlink(path)
+    except OSError:
+        pass
+    with auth_module.db() as c:
+        c.execute(
+            "DELETE FROM user_voices WHERE voice_id = ? AND user_id = ?",
+            (voice_id, user["id"]),
+        )
+    log.info("voice_deleted", user_id=user["id"], voice_id=voice_id)
+    return {"ok": True}
+
+
+def _proxy_to_hi(input_text: str, voice: str, cfg_scale: float) -> bytes:
     """Synchronous-on-purpose: called via asyncio.to_thread."""
     import json as _json
     body = _json.dumps(
-        {
-            "input": req.input,
-            "voice": req.voice,
-            "cfg_scale": req.cfg_scale,
-        }
+        {"input": input_text, "voice": voice, "cfg_scale": cfg_scale}
     ).encode("utf-8")
     request = urllib.request.Request(
         f"{HI_WORKER_URL}/v1/audio/speech",
@@ -300,7 +426,7 @@ def _proxy_to_hi(req: "SpeechRequest") -> bytes:
         method="POST",
     )
     try:
-        with urllib.request.urlopen(request, timeout=120) as resp:
+        with urllib.request.urlopen(request, timeout=180) as resp:
             return resp.read()
     except urllib.error.HTTPError as e:
         detail = e.read().decode("utf-8", errors="replace")[:500]
@@ -310,17 +436,40 @@ def _proxy_to_hi(req: "SpeechRequest") -> bytes:
 
 
 @app.post("/v1/audio/speech")
-async def create_speech(req: SpeechRequest):
+async def create_speech(req: SpeechRequest, request: Request):
     if not engine.ready:
         raise HTTPException(503, "model still loading")
     if req.response_format != "wav":
         raise HTTPException(400, "only response_format=wav is supported in v1")
 
-    # Hindi voices live in a separate worker process (different transformers
-    # version + community vibevoice fork). Proxy POSTs to it transparently.
-    if req.voice.lower().startswith("hi-"):
+    voice_lower = req.voice.lower()
+
+    # User-uploaded cloned voice: lookup ownership, then proxy to the Hindi
+    # worker with the absolute path of the stored .wav (the worker accepts
+    # either a preset key or an absolute path).
+    if voice_lower.startswith("user"):
+        user = auth_module.current_user(request)
+        if not user:
+            raise HTTPException(401, "authentication required for user voices")
+        path = _lookup_user_voice(req.voice, user["id"])
+        if not path:
+            raise HTTPException(404, f"voice '{req.voice}' not found for this user")
         t0 = time.time()
-        wav = await asyncio.to_thread(_proxy_to_hi, req)
+        wav = await asyncio.to_thread(_proxy_to_hi, req.input, path, req.cfg_scale)
+        log.info(
+            "synth_done_user", chars=len(req.input), voice=req.voice,
+            bytes=len(wav), seconds=round(time.time() - t0, 2),
+        )
+        return Response(
+            content=wav,
+            media_type="audio/wav",
+            headers={"X-Vaani-Generation-Seconds": f"{time.time() - t0:.2f}"},
+        )
+
+    # Hindi presets live in a separate worker process. Proxy POSTs transparently.
+    if voice_lower.startswith("hi-"):
+        t0 = time.time()
+        wav = await asyncio.to_thread(_proxy_to_hi, req.input, req.voice, req.cfg_scale)
         log.info(
             "synth_done_hi", chars=len(req.input), voice=req.voice,
             bytes=len(wav), seconds=round(time.time() - t0, 2),
@@ -331,7 +480,7 @@ async def create_speech(req: SpeechRequest):
             headers={"X-Vaani-Generation-Seconds": f"{time.time() - t0:.2f}"},
         )
 
-    if req.voice.lower() not in engine.voices:
+    if voice_lower not in engine.voices:
         raise HTTPException(
             400,
             f"unknown voice '{req.voice}'. See GET /v1/voices.",
