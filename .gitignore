@@ -37,6 +37,12 @@ logs/
 models/
 external/
 
+# Test artifacts
+.pytest_cache/
+.venv-test/
+htmlcov/
+.coverage
+
 # OS / editor
 .DS_Store
 Thumbs.db

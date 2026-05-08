@@ -1,16 +1,80 @@
-name: Deploy
+name: CI
 
 on:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]
   workflow_dispatch: {}
 
 concurrency:
-  group: deploy
-  cancel-in-progress: false
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # ---------------------------------------------------------------- backend
+  test-backend:
+    name: pytest (backend)
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install backend test deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install \
+            "pytest==8.3.4" \
+            "pyjwt==2.10.1" \
+            "bcrypt==4.2.1" \
+            "google-auth==2.36.0" \
+            "requests" \
+            "email-validator==2.2.0" \
+            "structlog==24.4.0" \
+            "fastapi==0.115.6" \
+            "pydantic==2.10.4" \
+            "httpx==0.28.1" \
+            "livekit-api>=1.0.5" \
+            "python-multipart==0.0.20"
+
+      - name: Run pytest
+        run: pytest tests/ -v --tb=short --color=yes
+
+  # --------------------------------------------------------------- frontend
+  test-frontend:
+    name: vitest (frontend)
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install studio deps
+        working-directory: apps/studio
+        run: bun install --frozen-lockfile
+
+      - name: Type-check
+        working-directory: apps/studio
+        run: bun run build
+
+      - name: Run vitest
+        working-directory: apps/studio
+        run: bun run test
+
+  # --------------------------------------------------------------- deploy
+  # Only runs on push to main, AFTER both test jobs are green.
   deploy:
+    name: deploy to GH200
+    needs: [test-backend, test-frontend]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
