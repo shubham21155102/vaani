@@ -1,19 +1,22 @@
 import { useEffect, useMemo, useState } from "react";
 import { Loader2, Play, AudioLines } from "lucide-react";
 import { api, type Voice } from "../lib/api";
+import { useAuth } from "../lib/auth";
 
 export function Voices() {
+  const { token } = useAuth();
   const [voices, setVoices] = useState<Voice[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [previewing, setPreviewing] = useState<string | null>(null);
   const [previewUrl, setPreviewUrl] = useState<{ id: string; url: string } | null>(null);
 
   useEffect(() => {
+    if (!token) return;
     api
-      .voices()
+      .voices(token)
       .then((v) => setVoices([...v.voices].sort((a, b) => a.id.localeCompare(b.id))))
       .catch((e) => setError(e.message));
-  }, []);
+  }, [token]);
 
   const grouped = useMemo(() => {
     const g: Record<string, Voice[]> = {};
@@ -30,7 +33,8 @@ export function Voices() {
       const blob = await api.speech(
         "Hello. This is a quick voice preview from the Vaani neural network.",
         v.id,
-        1.5
+        1.5,
+        token
       );
       const url = URL.createObjectURL(blob);
       setPreviewUrl({ id: v.id, url });
