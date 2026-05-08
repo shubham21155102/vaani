@@ -8,7 +8,7 @@ import {
   type RemoteParticipant,
   type LocalParticipant,
 } from "livekit-client";
-import { Mic, MicOff, Phone, PhoneOff, Loader2, Cpu } from "lucide-react";
+import { Mic, MicOff, Phone, PhoneOff, Loader2, Cpu, MessageSquare } from "lucide-react";
 import { agentApi, api, type AgentPreset, type Voice } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { useWhisper } from "../lib/use-whisper";
@@ -34,29 +34,26 @@ export function Agent() {
   const [voices, setVoices] = useState<Voice[]>([]);
   const [voiceOverride, setVoiceOverride] = useState<string>("");
   const [browserSttEnabled, setBrowserSttEnabled] = useState<boolean>(false);
-  // Live audio levels and speaking state for the wave animation.
+  
   const [userLevel, setUserLevel] = useState(0);
   const [agentLevel, setAgentLevel] = useState(0);
   const [agentSpeaking, setAgentSpeaking] = useState(false);
   const [userSpeaking, setUserSpeaking] = useState(false);
   const [webgpuSupported, setWebgpuSupported] = useState<boolean>(false);
 
-  // When the user changes the agent, reset the voice override to that
-  // agent's default. Empty string means "use preset default" on the server.
   useEffect(() => {
     setVoiceOverride("");
   }, [agentId]);
 
   const roomRef = useRef<Room | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const transcriptEndRef = useRef<HTMLDivElement>(null);
 
-  // Detect WebGPU once on mount.
   useEffect(() => {
     const has = typeof navigator !== "undefined" && "gpu" in navigator;
     setWebgpuSupported(Boolean(has));
   }, []);
 
-  // Animation loop: poll LiveKit audio levels while connected.
   useEffect(() => {
     if (status !== "connected") {
       setUserLevel(0);
@@ -73,11 +70,8 @@ export function Agent() {
         const agent = [...room.remoteParticipants.values()].find((p) =>
           p.identity.startsWith("agent")
         );
-        // Smooth toward target so the wave doesn't stutter.
         setUserLevel((cur) => cur + ((lp.audioLevel || 0) - cur) * 0.4);
-        setAgentLevel(
-          (cur) => cur + ((agent?.audioLevel || 0) - cur) * 0.4
-        );
+        setAgentLevel((cur) => cur + ((agent?.audioLevel || 0) - cur) * 0.4);
         setUserSpeaking(Boolean(lp.isSpeaking));
         setAgentSpeaking(Boolean(agent?.isSpeaking));
       }
@@ -87,8 +81,10 @@ export function Agent() {
     return () => cancelAnimationFrame(raf);
   }, [status]);
 
-  // Browser STT — load model only while toggle is on; route transcripts to
-  // the room as data messages so the agent worker treats them as user input.
+  useEffect(() => {
+    transcriptEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [transcript]);
+
   const handleLocalTranscript = useCallback((text: string) => {
     if (!text) return;
     const lp = roomRef.current?.localParticipant;
@@ -97,7 +93,6 @@ export function Agent() {
     const payload = new TextEncoder().encode(
       JSON.stringify({ type: "user_text", text })
     );
-    // reliable + topic so the agent can filter
     lp.publishData(payload, { reliable: true, topic: "user_text" }).catch(() => {});
   }, []);
 
@@ -111,9 +106,7 @@ export function Agent() {
     api
       .voices(token)
       .then((r) =>
-        setVoices(
-          [...r.voices].sort((a, b) => a.id.localeCompare(b.id))
-        )
+        setVoices([...r.voices].sort((a, b) => a.id.localeCompare(b.id)))
       )
       .catch(() => {});
     return () => {
@@ -175,18 +168,14 @@ export function Agent() {
               ]);
             }
           } catch {
-            // not JSON; ignore
+            // ignore
           }
         }
       );
 
       await room.connect(url, lkToken);
-      // If browser STT is on, the user's mic stays muted in the room — we'll
-      // do recognition locally and send text. Otherwise mic publishes normally
-      // for server-side STT.
       await room.localParticipant.setMicrophoneEnabled(!browserSttEnabled);
 
-      // Mark already-present agents.
       for (const p of room.remoteParticipants.values()) {
         if (p.identity.startsWith("agent")) setAgentJoined(true);
       }
@@ -237,240 +226,258 @@ export function Agent() {
   }
 
   return (
-    <div>
-      <h1 className="text-2xl font-semibold tracking-tight">Voice Agent</h1>
-      <p className="text-muted mt-1">
-        Talk to Vaani in real time. Powered by LiveKit, Groq Qwen3-32B, and our own VibeVoice.
-      </p>
-
-      <div className="mt-6 p-5 bg-panel border border-border rounded-xl">
-        <label className="block text-xs uppercase tracking-wide text-muted mb-2">
-          Choose an agent
-        </label>
-        <select
-          value={agentId}
-          onChange={(e) => setAgentId(e.target.value)}
-          disabled={status === "connected" || status === "connecting"}
-          className="w-full bg-panel-2 border border-border rounded-lg p-2.5 focus:outline-none focus:border-accent disabled:opacity-60"
-        >
-          {agents.length === 0 ? (
-            <option value="general">Vaani Assistant</option>
-          ) : (
-            agents.map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.name} — {a.description}
-              </option>
-            ))
-          )}
-        </select>
-        <label className="block text-xs uppercase tracking-wide text-muted mt-4 mb-2">
-          Voice
-        </label>
-        <select
-          value={voiceOverride}
-          onChange={(e) => setVoiceOverride(e.target.value)}
-          disabled={status === "connected" || status === "connecting"}
-          className="w-full bg-panel-2 border border-border rounded-lg p-2.5 focus:outline-none focus:border-accent disabled:opacity-60"
-        >
-          <option value="">
-            Default for this agent (
-            {agents.find((a) => a.id === agentId)?.voice || "en-emma_woman"})
-          </option>
-          {(() => {
-            const groups: Record<string, Voice[]> = {};
-            for (const v of voices) {
-              const lang = (v.language || v.id.split("-")[0]).toUpperCase();
-              (groups[lang] ||= []).push(v);
-            }
-            return Object.entries(groups)
-              .sort(([a], [b]) => a.localeCompare(b))
-              .map(([lang, list]) => (
-                <optgroup key={lang} label={lang}>
-                  {list.map((v) => (
-                    <option key={v.id} value={v.id}>
-                      {v.stem}
-                      {v.user ? "  ★" : ""}
-                    </option>
-                  ))}
-                </optgroup>
-              ));
-          })()}
-        </select>
-        <p className="text-xs text-muted mt-1">
-          {voiceOverride
-            ? "Overriding the agent's default voice."
-            : "Using this agent's default voice."}
+    <div className="animate-fade-in pb-12">
+      <div className="mb-8">
+        <h1 className="text-4xl font-display font-black tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-accent to-[#f97316]">
+          VOICE AGENT
+        </h1>
+        <p className="text-muted/80 mt-2 font-medium text-lg flex items-center gap-2">
+          <MessageSquare size={18} className="text-[#f97316]" />
+          Real-time neural interface powered by LiveKit & VibeVoice.
         </p>
-
-        <div className="mt-5 pt-5 border-t border-border">
-          <label className="flex items-start gap-3 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={browserSttEnabled}
-              onChange={(e) => setBrowserSttEnabled(e.target.checked)}
-              disabled={
-                !webgpuSupported ||
-                status === "connected" ||
-                status === "connecting"
-              }
-              className="mt-1 accent-accent"
-            />
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2 text-sm font-medium">
-                <Cpu size={14} className="text-accent" />
-                Run STT in your browser (WebGPU Whisper)
-              </div>
-              <p className="text-xs text-muted mt-1">
-                Audio never leaves your device. Lower server cost, better privacy.
-                {!webgpuSupported && (
-                  <span className="text-err">
-                    {" "}— Your browser doesn't expose WebGPU; toggle disabled.
-                  </span>
-                )}
-              </p>
-              {browserSttEnabled && whisper.state.kind === "loading" && (
-                <p className="text-xs text-muted mt-1">
-                  Loading Whisper model… {Math.round((whisper.state.progress || 0) * 100)}%
-                </p>
-              )}
-              {browserSttEnabled && whisper.state.kind === "error" && (
-                <p className="text-xs text-err mt-1">
-                  Whisper error: {whisper.state.message}
-                </p>
-              )}
-              {browserSttEnabled &&
-                (whisper.state.kind === "ready" ||
-                  whisper.state.kind === "listening" ||
-                  whisper.state.kind === "transcribing") && (
-                  <p className="text-xs text-ok mt-1">
-                    Whisper {whisper.state.kind === "transcribing" ? "transcribing…" : "ready"}
-                  </p>
-                )}
-            </div>
-          </label>
-        </div>
       </div>
 
-      <div className="mt-6 p-6 bg-panel border border-border rounded-xl">
-        <div className="flex items-center gap-4">
-          <div className="relative w-16 h-16 rounded-full bg-panel-2 border border-border flex items-center justify-center overflow-visible">
-            {/* Pulsing ring when agent is actively speaking */}
-            <span
-              className={[
-                "absolute inset-0 rounded-full transition-transform duration-150",
-                agentSpeaking ? "scale-125 bg-ok/20" : "scale-100 bg-transparent",
-              ].join(" ")}
-              style={{
-                boxShadow: agentSpeaking
-                  ? `0 0 ${24 + agentLevel * 80}px rgba(34, 197, 94, ${0.3 + agentLevel * 0.6})`
-                  : undefined,
-              }}
-            />
-            <span
-              className={[
-                "absolute inset-0 rounded-full",
-                status === "connected" && agentJoined && !agentSpeaking
-                  ? "animate-ping bg-accent/20"
-                  : "",
-              ].join(" ")}
-            />
-            <Phone size={22} className="text-accent relative" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="font-medium flex items-center gap-3">
-              <span>
-                {status === "idle" && "Ready"}
-                {status === "connecting" && "Connecting…"}
-                {status === "connected" && agentJoined && agentSpeaking && "Vaani is speaking…"}
-                {status === "connected" && agentJoined && !agentSpeaking && userSpeaking && "Listening…"}
-                {status === "connected" && agentJoined && !agentSpeaking && !userSpeaking && "Connected · Vaani is listening"}
-                {status === "connected" && !agentJoined && "Connected · waiting for assistant…"}
-                {status === "ending" && "Hanging up…"}
-                {status === "error" && "Connection failed"}
-              </span>
-              {status === "connected" && (
-                <VoiceWave
-                  level={Math.max(userLevel, agentLevel)}
-                  active={userSpeaking || agentSpeaking}
-                  color={agentSpeaking ? "ok" : userSpeaking ? "accent" : "muted"}
-                />
-              )}
-            </div>
-            <div className="text-xs text-muted mt-0.5">
-              {user ? `Joined as ${user.display_name || user.email}` : "Not signed in"}
-            </div>
-          </div>
-
-          {status === "idle" || status === "error" ? (
-            <button
-              onClick={connect}
-              disabled={!token}
-              className="bg-accent text-[#1a1300] disabled:bg-[#444] disabled:text-[#999] px-5 py-2.5 rounded-lg font-medium flex items-center gap-2 hover:bg-accent-2"
-            >
-              <Phone size={16} /> Start call
-            </button>
-          ) : status === "connecting" ? (
-            <button disabled className="bg-[#444] text-[#999] px-5 py-2.5 rounded-lg font-medium flex items-center gap-2">
-              <Loader2 size={16} className="animate-spin" /> Connecting
-            </button>
-          ) : (
-            <div className="flex items-center gap-2">
-              <button
-                onClick={toggleMute}
-                className="p-3 rounded-lg bg-panel-2 hover:bg-border"
-                title={muted ? "Unmute" : "Mute"}
-              >
-                {muted ? <MicOff size={16} className="text-err" /> : <Mic size={16} />}
-              </button>
-              <button
-                onClick={disconnect}
-                className="bg-err text-white px-5 py-2.5 rounded-lg font-medium flex items-center gap-2 hover:opacity-90"
-              >
-                <PhoneOff size={16} /> End
-              </button>
-            </div>
-          )}
-        </div>
-
-        {error && (
-          <div className="mt-4 p-3 border border-err rounded-lg text-err text-sm">{error}</div>
-        )}
-
-        <audio ref={audioRef} autoPlay playsInline controls className="mt-4 w-full" />
-      </div>
-
-      <h2 className="mt-8 text-sm uppercase tracking-wide text-muted">Transcript</h2>
-      <div className="mt-3 p-5 bg-panel border border-border rounded-xl min-h-[200px]">
-        {transcript.length === 0 ? (
-          <p className="text-sm text-muted">
-            {status === "connected"
-              ? "Speak — your words will show up here, and the assistant's replies under them."
-              : "Start a call to see the live transcript."}
-          </p>
-        ) : (
-          <ul className="space-y-3">
-            {transcript.map((line, i) => (
-              <li key={i} className="flex gap-3">
-                <span
-                  className={[
-                    "text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-full self-start mt-0.5 flex-shrink-0",
-                    line.who === "you"
-                      ? "bg-panel-2 text-muted"
-                      : "bg-accent text-[#1a1300]",
-                  ].join(" ")}
+      <div className="grid lg:grid-cols-[1fr,1fr] gap-6 items-start">
+        {/* Left Col: Config & Call Control */}
+        <div className="space-y-6">
+          <div className="glass-panel p-6 rounded-2xl border border-border/50 shadow-xl">
+            <h2 className="text-[10px] font-mono uppercase tracking-widest text-muted mb-4 border-b border-border/50 pb-2">
+              Agent Configuration
+            </h2>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-[10px] font-mono uppercase tracking-widest text-muted mb-2 ml-1">
+                  Select Construct
+                </label>
+                <select
+                  value={agentId}
+                  onChange={(e) => setAgentId(e.target.value)}
+                  disabled={status === "connected" || status === "connecting"}
+                  className="w-full bg-panel-2/80 border border-border/50 rounded-xl p-3 text-sm font-medium focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/50 transition-all appearance-none disabled:opacity-60"
                 >
-                  {line.who}
-                </span>
-                <p className="text-sm flex-1">{line.text}</p>
-              </li>
-            ))}
-          </ul>
-        )}
+                  {agents.length === 0 ? (
+                    <option value="general">Vaani Assistant</option>
+                  ) : (
+                    agents.map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {a.name} — {a.description}
+                      </option>
+                    ))
+                  )}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-mono uppercase tracking-widest text-muted mb-2 ml-1">
+                  Voice Override
+                </label>
+                <select
+                  value={voiceOverride}
+                  onChange={(e) => setVoiceOverride(e.target.value)}
+                  disabled={status === "connected" || status === "connecting"}
+                  className="w-full bg-panel-2/80 border border-border/50 rounded-xl p-3 text-sm font-medium focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/50 transition-all appearance-none disabled:opacity-60"
+                >
+                  <option value="">
+                    Default ({agents.find((a) => a.id === agentId)?.voice || "en-emma_woman"})
+                  </option>
+                  {(() => {
+                    const groups: Record<string, Voice[]> = {};
+                    for (const v of voices) {
+                      const lang = (v.language || v.id.split("-")[0]).toUpperCase();
+                      (groups[lang] ||= []).push(v);
+                    }
+                    return Object.entries(groups)
+                      .sort(([a], [b]) => a.localeCompare(b))
+                      .map(([lang, list]) => (
+                        <optgroup key={lang} label={lang} className="bg-panel text-muted">
+                          {list.map((v) => (
+                            <option key={v.id} value={v.id} className="text-text bg-panel-2">
+                              {v.stem}
+                              {v.user ? " ★" : ""}
+                            </option>
+                          ))}
+                        </optgroup>
+                      ));
+                  })()}
+                </select>
+              </div>
+
+              <div className="pt-4 border-t border-border/50">
+                <label className="flex items-start gap-3 cursor-pointer group">
+                  <div className="relative flex items-center justify-center mt-0.5">
+                    <input
+                      type="checkbox"
+                      checked={browserSttEnabled}
+                      onChange={(e) => setBrowserSttEnabled(e.target.checked)}
+                      disabled={
+                        !webgpuSupported ||
+                        status === "connected" ||
+                        status === "connecting"
+                      }
+                      className="sr-only"
+                    />
+                    <div className={`w-5 h-5 rounded border flex items-center justify-center transition-all ${browserSttEnabled ? 'bg-accent border-accent' : 'bg-panel-2 border-border/50 group-hover:border-accent/50'}`}>
+                      {browserSttEnabled && <Cpu size={12} className="text-panel font-bold" />}
+                    </div>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-bold tracking-wide text-text group-hover:text-accent transition-colors">
+                      Local STT (WebGPU Whisper)
+                    </div>
+                    <p className="text-xs text-muted/80 mt-1 leading-relaxed">
+                      Process audio entirely on-device for maximum privacy and zero latency.
+                      {!webgpuSupported && (
+                        <span className="text-err font-bold block mt-1">
+                          [ERROR: WebGPU NOT DETECTED]
+                        </span>
+                      )}
+                    </p>
+                    {browserSttEnabled && whisper.state.kind === "loading" && (
+                      <div className="mt-2 h-1.5 w-full bg-panel-2 rounded-full overflow-hidden">
+                        <div className="h-full bg-accent animate-pulse" style={{ width: `${Math.max(10, (whisper.state.progress || 0) * 100)}%` }} />
+                      </div>
+                    )}
+                  </div>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <div className="glass-panel p-6 rounded-2xl border border-border/50 shadow-xl relative overflow-hidden group">
+            {status === "connected" && (
+              <div className="absolute inset-0 bg-gradient-to-br from-accent/5 to-transparent pointer-events-none" />
+            )}
+            <div className="flex items-center gap-5 relative z-10">
+              <div className="relative w-20 h-20 rounded-full bg-panel-2/80 border border-border/50 flex items-center justify-center flex-shrink-0">
+                <span
+                  className="absolute inset-0 rounded-full transition-transform duration-150"
+                  style={{
+                    transform: `scale(${1 + agentLevel * 0.4})`,
+                    boxShadow: agentSpeaking
+                      ? `0 0 ${20 + agentLevel * 60}px rgba(255, 42, 95, ${0.4 + agentLevel * 0.5})`
+                      : undefined,
+                    backgroundColor: agentSpeaking ? 'rgba(255, 42, 95, 0.1)' : 'transparent',
+                  }}
+                />
+                {(status === "connecting" || (status === "connected" && !agentJoined)) && (
+                  <span className="absolute inset-0 rounded-full border-2 border-accent/50 border-t-transparent animate-spin" />
+                )}
+                <Phone size={28} className={status === "connected" ? "text-accent drop-shadow-[0_0_8px_rgba(255,42,95,0.8)]" : "text-muted"} />
+              </div>
+              
+              <div className="flex-1 min-w-0">
+                <div className="font-display font-bold tracking-widest flex items-center gap-3">
+                  <span className="truncate">
+                    {status === "idle" && "READY FOR LINK"}
+                    {status === "connecting" && "ESTABLISHING LINK..."}
+                    {status === "connected" && agentJoined && agentSpeaking && <span className="text-accent animate-pulse">AGENT SPEAKING</span>}
+                    {status === "connected" && agentJoined && !agentSpeaking && userSpeaking && <span className="text-ok">LISTENING...</span>}
+                    {status === "connected" && agentJoined && !agentSpeaking && !userSpeaking && "LINK ACTIVE"}
+                    {status === "connected" && !agentJoined && "WAITING FOR AGENT..."}
+                    {status === "ending" && "TERMINATING..."}
+                    {status === "error" && <span className="text-err">LINK FAILED</span>}
+                  </span>
+                  {status === "connected" && (
+                    <div className="shrink-0 w-16">
+                      <VoiceWave
+                        level={Math.max(userLevel, agentLevel)}
+                        active={userSpeaking || agentSpeaking}
+                        color={agentSpeaking ? "accent" : userSpeaking ? "ok" : "muted"}
+                      />
+                    </div>
+                  )}
+                </div>
+                <div className="text-[10px] font-mono text-muted/60 mt-1 uppercase">
+                  {user ? `OPERATIVE: ${user.display_name || user.email}` : "UNAUTHORIZED ACCESS"}
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-6 flex items-center gap-3 relative z-10">
+              {status === "idle" || status === "error" ? (
+                <button
+                  onClick={connect}
+                  disabled={!token}
+                  className="flex-1 bg-gradient-to-r from-accent to-accent-2 text-white disabled:from-panel-2 disabled:to-panel-2 px-5 py-3.5 rounded-xl font-bold tracking-widest flex items-center justify-center gap-2 hover:shadow-[0_0_20px_rgba(255,42,95,0.4)] transition-all uppercase"
+                >
+                  <Phone size={18} /> INITIATE LINK
+                </button>
+              ) : status === "connecting" ? (
+                <button disabled className="flex-1 bg-panel-2 border border-border/50 text-muted px-5 py-3.5 rounded-xl font-bold tracking-widest flex items-center justify-center gap-2 uppercase">
+                  <Loader2 size={18} className="animate-spin" /> CONNECTING
+                </button>
+              ) : (
+                <>
+                  <button
+                    onClick={toggleMute}
+                    className={`p-3.5 rounded-xl font-bold flex items-center justify-center transition-all ${muted ? 'bg-err/20 text-err border border-err/30' : 'bg-panel-2 border border-border/50 hover:bg-border/50 text-text'}`}
+                    title={muted ? "Unmute" : "Mute"}
+                  >
+                    {muted ? <MicOff size={20} /> : <Mic size={20} />}
+                  </button>
+                  <button
+                    onClick={disconnect}
+                    className="flex-1 bg-err hover:bg-err/90 text-white px-5 py-3.5 rounded-xl font-bold tracking-widest flex items-center justify-center gap-2 transition-all uppercase hover:shadow-[0_0_20px_rgba(255,23,68,0.4)]"
+                  >
+                    <PhoneOff size={18} /> TERMINATE
+                  </button>
+                </>
+              )}
+            </div>
+            
+            {error && (
+              <div className="mt-4 p-3 bg-err/10 border border-err/30 rounded-lg text-err text-[10px] font-mono uppercase">
+                ERROR: {error}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Right Col: Terminal Transcript */}
+        <div className="glass-panel rounded-2xl border border-border/50 shadow-xl flex flex-col h-[500px] lg:h-[600px] overflow-hidden">
+          <div className="p-3 border-b border-border/50 bg-panel-2/30 flex items-center gap-2">
+            <div className="w-2.5 h-2.5 rounded-full bg-err"></div>
+            <div className="w-2.5 h-2.5 rounded-full bg-accent-2"></div>
+            <div className="w-2.5 h-2.5 rounded-full bg-ok"></div>
+            <span className="ml-2 text-[10px] font-mono text-muted/60 uppercase tracking-widest">
+              Live Transcript Terminal
+            </span>
+          </div>
+          
+          <div className="flex-1 overflow-y-auto p-5 font-mono text-xs md:text-sm">
+            {transcript.length === 0 ? (
+              <div className="h-full flex flex-col items-center justify-center text-muted/40 space-y-4">
+                <MessageSquare size={48} className="opacity-20" />
+                <p className="max-w-[200px] text-center leading-relaxed">
+                  {status === "connected"
+                    ? "AWAITING VOCAL INPUT..."
+                    : "INITIATE LINK TO BEGIN TRANSCRIPTION."}
+                </p>
+              </div>
+            ) : (
+              <ul className="space-y-4">
+                {transcript.map((line, i) => (
+                  <li key={i} className={`flex flex-col ${line.who === 'you' ? 'items-end' : 'items-start'}`}>
+                    <span className={`text-[9px] uppercase tracking-widest mb-1 opacity-60 ${line.who === 'you' ? 'text-ok' : 'text-accent'}`}>
+                      {line.who === 'you' ? 'OPERATIVE' : 'AGENT'} // {new Date(line.ts).toISOString().substring(11, 19)}
+                    </span>
+                    <div className={`p-3 rounded-xl max-w-[85%] leading-relaxed ${line.who === 'you' ? 'bg-panel-2 border border-border/50 text-text/90 rounded-tr-sm' : 'bg-accent/10 border border-accent/20 text-accent rounded-tl-sm shadow-[0_0_15px_rgba(255,42,95,0.05)]'}`}>
+                      {line.text}
+                    </div>
+                  </li>
+                ))}
+                <div ref={transcriptEndRef} />
+              </ul>
+            )}
+          </div>
+        </div>
       </div>
+
+      <audio ref={audioRef} autoPlay playsInline className="hidden" />
 
       {!token && (
-        <div className="mt-6 p-4 bg-panel-2 border border-border rounded-lg text-sm text-muted">
-          Sign in to start a voice conversation.
+        <div className="mt-8 p-4 bg-err/10 border border-err/30 rounded-xl text-sm font-mono text-err font-bold uppercase text-center">
+          ACCESS DENIED: Authentication required to initialize agent link.
         </div>
       )}
     </div>

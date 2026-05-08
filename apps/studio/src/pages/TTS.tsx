@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Loader2, Play, Download, Upload, Trash2 } from "lucide-react";
+import { Loader2, Play, Download, Upload, Trash2, Zap } from "lucide-react";
 import { api, voicesApi, type Voice } from "../lib/api";
 import { useAuth } from "../lib/auth";
 
@@ -113,47 +113,59 @@ export function TTS() {
   }
 
   return (
-    <div>
-      <h1 className="text-2xl font-semibold tracking-tight">Text to Speech</h1>
-      <p className="text-muted mt-1">
-        VibeVoice for English &amp; multilingual presets · vibevoice-hindi-1.5B for Hindi · zero-shot cloning for your own voices.
-      </p>
+    <div className="animate-fade-in">
+      <div className="mb-8">
+        <h1 className="text-4xl font-display font-black tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-accent to-accent-2">
+          TEXT TO SPEECH
+        </h1>
+        <p className="text-muted/80 mt-2 font-medium text-lg">
+          Generate expressive audio with next-gen AI. Zero-shot cloning supported.
+        </p>
+      </div>
 
-      <div className="mt-6 grid gap-6 lg:grid-cols-[2fr,1fr]">
-        <div>
-          <label className="block text-xs uppercase tracking-wide text-muted mb-2">Text</label>
+      <div className="grid gap-8 lg:grid-cols-[2fr,1fr]">
+        <div className="glass-panel p-6 rounded-2xl border border-border/50 shadow-xl flex flex-col">
+          <label className="flex items-center gap-2 text-[10px] font-mono uppercase tracking-widest text-accent mb-3">
+            <Zap size={14} /> Input Text
+          </label>
           <textarea
             value={text}
             onChange={(e) => setText(e.target.value)}
             rows={8}
             maxLength={4000}
-            className="w-full bg-panel-2 border border-border rounded-lg p-3 focus:outline-none focus:border-accent"
+            className="w-full flex-1 bg-panel-2/50 border border-border/50 rounded-xl p-4 font-medium focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/50 transition-all resize-none"
+            placeholder="Enter text to synthesize..."
           />
-          <div className="flex flex-wrap gap-2 mt-2">
+          <div className="flex flex-wrap gap-2 mt-4">
             {EXAMPLES.map(([label, value]) => (
               <button
                 key={label}
                 onClick={() => setText(value)}
-                className="text-xs px-3 py-1.5 rounded-full border border-border text-muted hover:text-text hover:border-text"
+                className="text-[10px] font-mono uppercase tracking-wider px-3 py-1.5 rounded-lg border border-border/50 bg-panel-2/30 text-muted hover:text-accent hover:border-accent/50 hover:bg-accent/10 transition-all"
               >
                 {label}
               </button>
             ))}
-            <span className="ml-auto text-xs text-muted self-center">{text.length} / 4000</span>
+            <span className="ml-auto text-[10px] font-mono text-muted/50 self-center">
+              {text.length} / 4000 CHARS
+            </span>
           </div>
         </div>
-        <div className="space-y-4">
-          <div>
-            <label className="block text-xs uppercase tracking-wide text-muted mb-2">Voice</label>
+
+        <div className="space-y-6">
+          <div className="glass-panel p-6 rounded-2xl border border-border/50 shadow-xl">
+            <label className="block text-[10px] font-mono uppercase tracking-widest text-muted mb-3">
+              Voice Model
+            </label>
             <select
               value={voice}
               onChange={(e) => setVoice(e.target.value)}
-              className="w-full bg-panel-2 border border-border rounded-lg p-2.5 focus:outline-none focus:border-accent"
+              className="w-full bg-panel-2/50 border border-border/50 rounded-xl p-3 font-medium focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/50 transition-all appearance-none"
             >
               {groupedVoices.map(({ label, list }) => (
-                <optgroup key={label} label={label}>
+                <optgroup key={label} label={label} className="bg-panel text-muted">
                   {list.map((v) => (
-                    <option key={v.id} value={v.id}>
+                    <option key={v.id} value={v.id} className="text-text bg-panel-2">
                       {v.stem}
                       {v.language === "hi" ? " 🇮🇳" : ""}
                     </option>
@@ -164,16 +176,20 @@ export function TTS() {
             {voices.find((v) => v.id === voice)?.user && (
               <button
                 onClick={() => deleteVoice(voice)}
-                className="mt-2 text-xs text-muted hover:text-err inline-flex items-center gap-1"
+                className="mt-3 text-[10px] font-mono uppercase tracking-widest text-err/70 hover:text-err flex items-center gap-1.5 transition-colors p-2 hover:bg-err/10 rounded-lg w-full justify-center"
               >
-                <Trash2 size={12} /> Delete this voice
+                <Trash2 size={12} /> Purge Voice Model
               </button>
             )}
           </div>
-          <div>
-            <label className="block text-xs uppercase tracking-wide text-muted mb-2">
-              CFG scale ({cfg.toFixed(1)})
-            </label>
+
+          <div className="glass-panel p-6 rounded-2xl border border-border/50 shadow-xl">
+            <div className="flex justify-between items-center mb-3">
+              <label className="block text-[10px] font-mono uppercase tracking-widest text-muted">
+                CFG Scale
+              </label>
+              <span className="text-xs font-mono font-bold text-accent">{cfg.toFixed(1)}</span>
+            </div>
             <input
               type="range"
               min={0.5}
@@ -181,86 +197,118 @@ export function TTS() {
               step={0.1}
               value={cfg}
               onChange={(e) => setCfg(parseFloat(e.target.value))}
-              className="w-full accent-accent"
+              className="w-full h-2 bg-panel-2 rounded-lg appearance-none cursor-pointer accent-accent"
             />
+            <div className="flex justify-between text-[9px] font-mono text-muted/50 mt-2">
+              <span>0.5</span>
+              <span>1.5</span>
+              <span>3.0</span>
+            </div>
           </div>
         </div>
       </div>
 
-      <div className="mt-6 flex items-center gap-4">
+      <div className="mt-8 flex flex-col sm:flex-row items-center gap-4">
         <button
           onClick={generate}
           disabled={loading || !text.trim() || !voice}
-          className="bg-accent text-[#1a1300] disabled:bg-[#444] disabled:text-[#999] px-5 py-2.5 rounded-lg font-medium flex items-center gap-2 hover:bg-accent-2 transition-colors"
+          className="w-full sm:w-auto bg-gradient-to-r from-accent to-accent-2 text-white disabled:from-panel-2 disabled:to-panel-2 disabled:text-muted/50 px-8 py-3.5 rounded-xl font-bold tracking-widest flex items-center justify-center gap-3 hover:shadow-[0_0_20px_rgba(255,42,95,0.4)] hover:scale-[1.02] active:scale-[0.98] transition-all duration-300 group"
         >
-          {loading ? <Loader2 size={16} className="animate-spin" /> : <Play size={16} />}
-          {loading ? "Generating…" : "Generate Speech"}
+          {loading ? (
+            <Loader2 size={18} className="animate-spin" />
+          ) : (
+            <Play size={18} className="fill-current group-hover:scale-110 transition-transform" />
+          )}
+          {loading ? "SYNTHESIZING..." : "GENERATE AUDIO"}
         </button>
-        {error && <span className="text-err text-sm">{error}</span>}
+        {error && <span className="text-err text-xs font-mono font-bold bg-err/10 px-3 py-2 rounded-lg border border-err/20">{error}</span>}
         {meta && !error && (
-          <span className="text-muted text-sm">
-            {(meta.ms / 1000).toFixed(2)}s · {(meta.bytes / 1024).toFixed(1)} KB
+          <span className="text-muted/70 text-[10px] font-mono font-bold px-4 py-2 glass-panel rounded-lg border border-border/50">
+            SPEED: <span className="text-ok">{(meta.ms / 1000).toFixed(2)}S</span> <span className="mx-2">|</span> SIZE: <span className="text-accent-2">{(meta.bytes / 1024).toFixed(1)} KB</span>
           </span>
         )}
       </div>
 
       {audioUrl && (
-        <div className="mt-6 p-5 bg-panel border border-border rounded-xl">
-          <div className="text-xs uppercase tracking-wide text-muted mb-3">Output</div>
-          <audio controls src={audioUrl} className="w-full" />
+        <div className="mt-8 glass-panel p-6 rounded-2xl border border-ok/30 shadow-[0_0_20px_rgba(0,230,118,0.1)] animate-fade-in relative overflow-hidden">
+          <div className="absolute top-0 left-0 w-1 bg-ok h-full shadow-[0_0_10px_#00e676]" />
+          <div className="text-[10px] font-mono uppercase tracking-widest text-ok mb-4 flex items-center gap-2">
+            <div className="w-1.5 h-1.5 rounded-full bg-ok animate-pulse" />
+            Synthesis Complete
+          </div>
+          <audio controls src={audioUrl} className="w-full h-12 rounded-lg" />
           <a
             href={audioUrl}
-            download="vaani.wav"
-            className="inline-flex items-center gap-2 text-sm text-accent hover:underline mt-3"
+            download="vaani-synth.wav"
+            className="inline-flex items-center gap-2 text-[10px] font-mono font-bold text-panel bg-ok hover:bg-ok/90 px-4 py-2 rounded-lg mt-4 transition-colors uppercase tracking-widest"
           >
-            <Download size={14} /> Download .wav
+            <Download size={14} /> Download WAV
           </a>
         </div>
       )}
 
       {/* Voice upload (auth required) */}
-      <div className="mt-10 p-5 bg-panel border border-border rounded-xl">
-        <div className="flex items-center gap-3">
-          <Upload size={18} className="text-accent" />
+      <div className="mt-12 glass-panel p-8 rounded-2xl border border-border/50 relative overflow-hidden group">
+        <div className="absolute -right-20 -top-20 w-64 h-64 bg-accent/5 rounded-full blur-[80px] pointer-events-none group-hover:bg-accent/10 transition-colors" />
+        
+        <div className="flex items-start gap-4 mb-6 relative z-10">
+          <div className="w-10 h-10 rounded-xl bg-accent/10 flex items-center justify-center border border-accent/20">
+            <Upload size={20} className="text-accent" />
+          </div>
           <div>
-            <h2 className="font-semibold">Clone your voice</h2>
-            <p className="text-sm text-muted mt-0.5">
-              Upload a clean .wav (3–30 s, single speaker, 24 kHz mono recommended). It will appear in MY VOICES.
+            <h2 className="text-lg font-display font-bold tracking-wide">CLONE NEURAL VOICE</h2>
+            <p className="text-xs text-muted/80 mt-1 font-medium max-w-lg">
+              Upload a pristine audio sample (3–30s, single speaker, 24kHz mono recommended). The system will extract the vocal footprint.
             </p>
           </div>
         </div>
+
         {!token ? (
-          <p className="mt-4 text-sm text-muted">
-            Sign in to upload your own voices.
-          </p>
+          <div className="bg-panel-2/50 border border-border/50 rounded-xl p-4 text-center">
+            <p className="text-sm font-medium text-muted">
+              Authentication required to access cloning matrix.
+            </p>
+          </div>
         ) : (
-          <div className="mt-5 grid gap-3 sm:grid-cols-[2fr,3fr,auto]">
+          <div className="grid gap-4 sm:grid-cols-[1fr,1.5fr,auto] relative z-10">
             <input
               value={uploadName}
               onChange={(e) => setUploadName(e.target.value)}
-              placeholder="Voice name (e.g. my-voice)"
+              placeholder="Designation (e.g. ghost-01)"
               maxLength={40}
-              className="bg-panel-2 border border-border rounded-lg p-2.5 focus:outline-none focus:border-accent"
+              className="bg-panel-2/80 border border-border/50 rounded-xl p-3 text-sm font-medium focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/50 transition-all placeholder:text-muted/40"
             />
-            <input
-              ref={fileRef}
-              type="file"
-              accept=".wav,audio/wav,audio/x-wav"
-              onChange={(e) => setUploadFile(e.target.files?.[0] || null)}
-              className="text-sm text-muted file:mr-3 file:px-3 file:py-2 file:rounded-md file:border file:border-border file:bg-panel-2 file:text-text"
-            />
+            <div className="relative">
+              <input
+                ref={fileRef}
+                type="file"
+                accept=".wav,audio/wav,audio/x-wav"
+                onChange={(e) => setUploadFile(e.target.files?.[0] || null)}
+                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+              />
+              <div className="h-full bg-panel-2/80 border border-border/50 border-dashed hover:border-accent/50 rounded-xl p-3 flex items-center gap-3 text-sm transition-colors overflow-hidden">
+                <div className="px-3 py-1 bg-panel text-[10px] font-mono rounded uppercase tracking-wider text-muted font-bold">
+                  Select File
+                </div>
+                <span className="text-muted truncate font-medium">
+                  {uploadFile ? uploadFile.name : "No file chosen"}
+                </span>
+              </div>
+            </div>
             <button
               onClick={uploadVoice}
               disabled={uploading || !uploadName.trim() || !uploadFile}
-              className="bg-accent text-[#1a1300] disabled:bg-[#444] disabled:text-[#999] px-4 rounded-lg font-medium flex items-center gap-2 hover:bg-accent-2"
+              className="bg-accent hover:bg-accent-hover text-white disabled:bg-panel-2 disabled:text-muted/50 px-6 rounded-xl font-bold tracking-wide flex items-center justify-center gap-2 transition-all disabled:hover:scale-100 active:scale-95 uppercase text-sm"
             >
-              {uploading ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
-              Upload
+              {uploading ? <Loader2 size={16} className="animate-spin" /> : <Upload size={16} />}
+              {uploading ? "UPLOADING..." : "UPLOAD"}
             </button>
           </div>
         )}
         {uploadError && (
-          <div className="mt-3 text-err text-sm">{uploadError}</div>
+          <div className="mt-4 text-err text-xs font-mono bg-err/10 border border-err/20 p-3 rounded-lg inline-block">
+            ERROR: {uploadError}
+          </div>
         )}
       </div>
     </div>

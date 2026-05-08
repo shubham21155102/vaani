@@ -13,6 +13,8 @@ import { Docs } from "./pages/Docs";
 import { Login } from "./pages/Login";
 import { Signup } from "./pages/Signup";
 import { Agent } from "./pages/Agent";
+import { Menu, X } from "lucide-react";
+import { useState } from "react";
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
@@ -24,18 +26,30 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
 }
 
 function AppLayout() {
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
   return (
-    <div className="flex">
-      <Sidebar />
-      <div className="flex-1 min-w-0">
-        <header className="sticky top-0 z-10 bg-bg/80 backdrop-blur border-b border-border px-8 py-3 flex items-center justify-between">
-          <div className="text-sm text-muted">Studio</div>
-          <div className="flex items-center gap-4">
+    <div className="flex h-screen overflow-hidden bg-bg text-text selection:bg-accent/30">
+      <Sidebar isOpen={mobileMenuOpen} close={() => setMobileMenuOpen(false)} />
+      
+      <div className="flex-1 min-w-0 flex flex-col relative h-full">
+        <header className="sticky top-0 z-20 glass-panel border-b border-border/50 px-4 md:px-8 py-3 flex items-center justify-between shadow-[0_4px_30px_rgba(0,0,0,0.5)]">
+          <div className="flex items-center gap-3">
+            <button 
+              className="md:hidden p-2 -ml-2 text-muted hover:text-accent transition-colors"
+              onClick={() => setMobileMenuOpen(true)}
+            >
+              <Menu size={20} />
+            </button>
+            <div className="text-sm font-display tracking-widest text-muted hidden sm:block uppercase">Studio</div>
+          </div>
+          <div className="flex items-center gap-3 md:gap-5">
             <StatusPill />
             <UserMenu />
           </div>
         </header>
-        <main className="px-8 py-8 max-w-5xl">
+        
+        <main className="flex-1 overflow-y-auto px-4 sm:px-8 py-8 w-full max-w-6xl mx-auto animate-fade-in relative">
           <Routes>
             <Route path="/" element={<Home />} />
             <Route path="/tts" element={<TTS />} />

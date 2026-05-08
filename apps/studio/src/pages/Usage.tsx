@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { CheckCircle2, CreditCard, Loader2, ShoppingCart } from "lucide-react";
+import { CheckCircle2, CreditCard, Loader2, ShoppingCart, Zap } from "lucide-react";
 import {
   billingApi,
   type Package,
@@ -49,7 +49,6 @@ export function Usage() {
       ]);
       setPkgs(packages);
       setHistory(payments);
-      // Refresh balance from /me
       const me = await fetch(`${API_BASE}/v1/auth/me`, {
         headers: { Authorization: `Bearer ${token}` },
       }).then((r) => r.json());
@@ -67,8 +66,6 @@ export function Usage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
-  // After Cashfree returns to /usage?order_id=..., poll for a few seconds
-  // so the webhook has time to land and credit the account.
   useEffect(() => {
     if (!returnedOrder || !token) return;
     let n = 0;
@@ -103,7 +100,6 @@ export function Usage() {
       if (result.error) {
         setError(result.error.message || "Payment failed.");
       }
-      // Whether modal closed by completion, drop, or X, refresh state.
       await refresh();
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : String(e));
@@ -113,133 +109,161 @@ export function Usage() {
   }
 
   return (
-    <div>
-      <h1 className="text-2xl font-semibold tracking-tight">Usage & Credits</h1>
-      <p className="text-muted mt-1">
-        Top up credits to keep generating speech and transcripts.
-      </p>
+    <div className="animate-fade-in pb-12">
+      <div className="mb-8">
+        <h1 className="text-4xl font-display font-black tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-accent to-accent-2">
+          RESOURCE ALLOCATION
+        </h1>
+        <p className="text-muted/80 mt-2 font-medium text-lg flex items-center gap-2">
+          <Zap size={18} className="text-accent-2" />
+          Manage compute credits for synthesis and transcription operations.
+        </p>
+      </div>
 
       {returnedOrder && (
-        <div className="mt-4 p-3 border border-accent rounded-lg flex items-center gap-2 text-sm">
-          <Loader2 size={14} className="animate-spin text-accent" />
-          Confirming payment for <code className="font-mono text-xs">{returnedOrder}</code>…
+        <div className="mb-6 p-4 glass-panel border border-accent rounded-xl flex items-center gap-3 text-sm font-mono text-accent shadow-[0_0_15px_rgba(255,42,95,0.2)]">
+          <Loader2 size={16} className="animate-spin text-accent" />
+          <span>VERIFYING TRANSACTION <code className="text-white ml-2">{returnedOrder}</code>...</span>
         </div>
       )}
 
-      <div className="mt-6 grid gap-4 sm:grid-cols-3">
-        <div className="p-5 bg-panel border border-border rounded-xl">
-          <div className="text-xs uppercase tracking-wide text-muted">Credits</div>
-          <div className="text-3xl font-semibold mt-2">{credits.toLocaleString()}</div>
-          <div className="text-xs text-muted mt-1">available balance</div>
-        </div>
-        <div className="p-5 bg-panel border border-border rounded-xl">
-          <div className="text-xs uppercase tracking-wide text-muted">Lifetime spend</div>
-          <div className="text-3xl font-semibold mt-2">
-            ₹{history.filter((p) => p.status === "PAID").reduce((s, p) => s + p.amount_inr, 0).toLocaleString()}
+      <div className="grid gap-6 sm:grid-cols-3 mb-12">
+        <div className="glass-panel p-6 border border-accent/30 rounded-2xl relative overflow-hidden group">
+          <div className="absolute inset-0 bg-accent/5 opacity-50 group-hover:opacity-100 transition-opacity" />
+          <div className="absolute top-0 left-0 w-1 bg-accent h-full shadow-[0_0_10px_#ff2a5f]" />
+          <div className="relative z-10">
+            <div className="text-[10px] font-mono uppercase tracking-widest text-accent mb-2">Available Compute</div>
+            <div className="text-4xl font-black font-display text-text drop-shadow-[0_0_10px_rgba(255,255,255,0.2)] tracking-tighter">
+              {credits.toLocaleString()}
+            </div>
+            <div className="text-xs text-muted font-medium mt-1">TOTAL CREDITS</div>
           </div>
-          <div className="text-xs text-muted mt-1">{history.filter((p) => p.status === "PAID").length} purchases</div>
         </div>
-        <div className="p-5 bg-panel border border-border rounded-xl">
-          <div className="text-xs uppercase tracking-wide text-muted">Mode</div>
-          <div className="text-3xl font-semibold mt-2">{CASHFREE_MODE === "production" ? "Live" : "Sandbox"}</div>
-          <div className="text-xs text-muted mt-1">payments via Cashfree</div>
+        
+        <div className="glass-panel p-6 border border-border/50 rounded-2xl relative overflow-hidden">
+          <div className="relative z-10">
+            <div className="text-[10px] font-mono uppercase tracking-widest text-muted mb-2">Total Capital Infused</div>
+            <div className="text-4xl font-black font-display text-text tracking-tighter">
+              ₹{history.filter((p) => p.status === "PAID").reduce((s, p) => s + p.amount_inr, 0).toLocaleString()}
+            </div>
+            <div className="text-xs text-muted font-medium mt-1">ACROSS {history.filter((p) => p.status === "PAID").length} TRANSACTIONS</div>
+          </div>
+        </div>
+        
+        <div className="glass-panel p-6 border border-border/50 rounded-2xl relative overflow-hidden">
+          <div className="relative z-10">
+            <div className="text-[10px] font-mono uppercase tracking-widest text-muted mb-2">Gateway Status</div>
+            <div className="text-4xl font-black font-display text-text tracking-tighter uppercase">
+              {CASHFREE_MODE === "production" ? "LIVE" : "TEST"}
+            </div>
+            <div className="text-xs text-muted font-medium mt-1">CASHFREE NETWORK</div>
+          </div>
         </div>
       </div>
 
-      <h2 className="mt-10 text-sm uppercase tracking-wide text-muted">Top up</h2>
-      <div className="mt-3 grid gap-4 sm:grid-cols-3">
-        {loading && pkgs.length === 0 ? (
-          <div className="col-span-3 text-muted text-sm flex items-center gap-2">
-            <Loader2 size={14} className="animate-spin" /> Loading packages…
-          </div>
-        ) : (
-          pkgs.map((p) => (
-            <div
-              key={p.id}
-              className="p-5 bg-panel border border-border rounded-xl flex flex-col"
-            >
-              <div className="text-sm uppercase tracking-wide text-muted">
-                {p.label}
-              </div>
-              <div className="mt-3 flex items-baseline gap-2">
-                <div className="text-3xl font-semibold">₹{p.amount_inr.toLocaleString()}</div>
-              </div>
-              <div className="text-sm text-muted mt-1">
-                {p.credits.toLocaleString()} credits
-              </div>
-              <div className="text-xs text-muted mt-1">
-                ≈ ₹{(p.amount_inr / p.credits * 1000).toFixed(2)} per 1k credits
-              </div>
-              <button
-                onClick={() => buy(p)}
-                disabled={buying !== null}
-                className="mt-4 bg-accent text-[#1a1300] disabled:bg-[#444] disabled:text-[#999] py-2.5 rounded-lg font-medium flex items-center justify-center gap-2 hover:bg-accent-2"
-              >
-                {buying === p.id ? (
-                  <Loader2 size={14} className="animate-spin" />
-                ) : (
-                  <ShoppingCart size={14} />
-                )}
-                Buy
-              </button>
+      <div className="mb-12">
+        <h2 className="text-lg font-display font-bold tracking-widest mb-6 flex items-center gap-3">
+          ACQUIRE RESOURCES
+          <div className="flex-1 h-px bg-gradient-to-r from-border/80 to-transparent" />
+        </h2>
+        
+        <div className="grid gap-6 sm:grid-cols-3">
+          {loading && pkgs.length === 0 ? (
+            <div className="col-span-3 text-accent font-mono text-sm font-bold uppercase tracking-widest flex items-center gap-2">
+              <Loader2 size={16} className="animate-spin" /> Loading Packages...
             </div>
-          ))
-        )}
+          ) : (
+            pkgs.map((p) => (
+              <div
+                key={p.id}
+                className="glass-panel p-6 border border-border/50 hover:border-accent/50 hover:shadow-[0_0_20px_rgba(255,42,95,0.15)] rounded-2xl flex flex-col transition-all duration-300 group"
+              >
+                <div className="text-[10px] font-mono uppercase tracking-widest text-muted group-hover:text-accent transition-colors">
+                  {p.label}
+                </div>
+                <div className="mt-4 flex items-baseline gap-2">
+                  <div className="text-3xl font-display font-black tracking-tighter">₹{p.amount_inr.toLocaleString()}</div>
+                </div>
+                <div className="text-sm font-bold text-accent-2 mt-2 font-mono">
+                  +{p.credits.toLocaleString()} CREDITS
+                </div>
+                <div className="text-[10px] text-muted/60 mt-1 font-mono uppercase tracking-wider">
+                  ≈ ₹{(p.amount_inr / p.credits * 1000).toFixed(2)} / 1K
+                </div>
+                <button
+                  onClick={() => buy(p)}
+                  disabled={buying !== null}
+                  className="mt-6 bg-panel-2/80 border border-border/50 text-text group-hover:bg-gradient-to-r group-hover:from-accent group-hover:to-accent-2 group-hover:text-white group-hover:border-transparent disabled:opacity-50 py-3 rounded-xl font-bold tracking-widest flex items-center justify-center gap-2 transition-all uppercase text-sm"
+                >
+                  {buying === p.id ? (
+                    <Loader2 size={16} className="animate-spin" />
+                  ) : (
+                    <ShoppingCart size={16} className="group-hover:scale-110 transition-transform" />
+                  )}
+                  {buying === p.id ? "PROCESSING..." : "PURCHASE"}
+                </button>
+              </div>
+            ))
+          )}
+        </div>
       </div>
 
       {error && (
-        <div className="mt-6 p-3 border border-err rounded-lg text-err text-sm">
-          {error}
+        <div className="mb-8 p-4 bg-err/10 border border-err/30 rounded-xl text-err text-[10px] font-mono uppercase font-bold">
+          TRANSACTION ERROR: {error}
         </div>
       )}
 
-      <h2 className="mt-10 text-sm uppercase tracking-wide text-muted">Recent payments</h2>
-      <div className="mt-3 space-y-2">
-        {history.length === 0 ? (
-          <div className="p-8 bg-panel border border-border rounded-xl flex flex-col items-center text-center">
-            <div className="w-10 h-10 rounded-full bg-panel-2 flex items-center justify-center">
-              <CreditCard size={16} className="text-muted" />
+      <div>
+        <h2 className="text-lg font-display font-bold tracking-widest mb-6 flex items-center gap-3">
+          TRANSACTION LEDGER
+          <div className="flex-1 h-px bg-gradient-to-r from-border/80 to-transparent" />
+        </h2>
+        <div className="space-y-3">
+          {history.length === 0 ? (
+            <div className="p-12 glass-panel border border-border/50 rounded-2xl flex flex-col items-center text-center opacity-80">
+              <div className="w-16 h-16 rounded-2xl bg-panel-2/80 border border-border/50 flex items-center justify-center mb-4">
+                <CreditCard size={28} className="text-muted" />
+              </div>
+              <p className="text-sm text-muted font-medium">Ledger is empty.</p>
             </div>
-            <p className="mt-3 text-sm text-muted">No purchases yet.</p>
-          </div>
-        ) : (
-          history.map((p) => (
-            <div
-              key={p.order_id}
-              className="p-4 bg-panel border border-border rounded-xl flex items-center gap-4"
-            >
-              <div className="flex-1 min-w-0">
-                <div className="font-medium truncate">
-                  {pkgs.find((x) => x.id === p.package_id)?.label || p.package_id}
+          ) : (
+            history.map((p) => (
+              <div
+                key={p.order_id}
+                className="glass-panel p-5 border border-border/50 rounded-xl flex items-center gap-4 hover:bg-panel-2/30 transition-colors"
+              >
+                <div className="flex-1 min-w-0">
+                  <div className="font-bold tracking-wide text-text/90">
+                    {pkgs.find((x) => x.id === p.package_id)?.label || p.package_id}
+                  </div>
+                  <div className="text-[10px] text-muted/60 font-mono mt-1 mb-2 bg-panel-2 px-2 py-0.5 rounded inline-block truncate max-w-full">
+                    ID: {p.order_id}
+                  </div>
+                  <div className="text-[10px] font-mono text-muted/60 uppercase tracking-widest flex gap-4">
+                    <span>INIT: {new Date(p.created_at).toLocaleString()}</span>
+                    {p.paid_at && <span className="text-text/70">SETTLED: {new Date(p.paid_at).toLocaleTimeString()}</span>}
+                  </div>
                 </div>
-                <div className="text-xs text-muted font-mono mt-0.5 truncate">
-                  {p.order_id}
-                </div>
-                <div className="text-xs text-muted mt-1">
-                  {new Date(p.created_at).toLocaleString()}
-                  {p.paid_at && ` · paid ${new Date(p.paid_at).toLocaleTimeString()}`}
+                <div className="text-right">
+                  <div className="font-display font-bold text-lg tracking-tight">₹{p.amount_inr.toLocaleString()}</div>
+                  <div
+                    className={`text-[10px] font-mono font-bold uppercase tracking-widest mt-1 flex items-center justify-end gap-1 ${
+                      p.status === "PAID"
+                        ? "text-ok"
+                        : p.status === "FAILED"
+                        ? "text-err"
+                        : "text-muted"
+                    }`}
+                  >
+                    {p.status === "PAID" && <CheckCircle2 size={12} />}
+                    {p.status}
+                  </div>
                 </div>
               </div>
-              <div className="text-right">
-                <div className="font-medium">₹{p.amount_inr.toLocaleString()}</div>
-                <div
-                  className={`text-xs mt-0.5 ${
-                    p.status === "PAID"
-                      ? "text-ok"
-                      : p.status === "FAILED"
-                      ? "text-err"
-                      : "text-muted"
-                  }`}
-                >
-                  {p.status === "PAID" && (
-                    <CheckCircle2 size={12} className="inline mr-1 -mt-0.5" />
-                  )}
-                  {p.status}
-                </div>
-              </div>
-            </div>
-          ))
-        )}
+            ))
+          )}
+        </div>
       </div>
     </div>
   );
