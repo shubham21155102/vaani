@@ -1,0 +1,20 @@
+[Unit]
+Description=Vaani STT worker (VibeVoice ASR)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu/vaani
+Environment=PYTHONUNBUFFERED=1
+Environment=VAANI_ASR_MODEL=/home/ubuntu/vaani/models/VibeVoice-ASR-HF
+ExecStart=/home/ubuntu/vaani/.venv-stt/bin/uvicorn apps.stt_worker.main:app --host 127.0.0.1 --port 8002 --workers 1
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

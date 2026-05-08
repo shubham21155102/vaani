@@ -1,0 +1,45 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+.venv-*/
+*.egg-info/
+build/
+dist/
+
+# Node
+node_modules/
+*.tsbuildinfo
+
+# Vite / TS build artifacts (we ship dist via SCP, not git)
+apps/studio/dist/
+apps/studio/vite.config.d.ts
+apps/studio/vite.config.js
+
+# Local secrets — copy .env.example, fill in real values
+**/.env
+**/.env.local
+!**/.env.example
+
+# Server-side secrets (never commit)
+.secret-jwt
+*.pem
+*.key
+
+# Generated / runtime
+data/
+test-outputs/
+logs/
+models/
+external/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp

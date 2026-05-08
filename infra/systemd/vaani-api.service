@@ -1,0 +1,22 @@
+[Unit]
+Description=Vaani API gateway (FastAPI + VibeVoice TTS)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu/vaani
+Environment=PYTHONUNBUFFERED=1
+Environment=VAANI_TTS_MODEL=/home/ubuntu/vaani/models/VibeVoice-Realtime-0.5B
+Environment=VAANI_VOICES_DIR=/home/ubuntu/vaani/external/VibeVoice/demo/voices/streaming_model
+EnvironmentFile=/home/ubuntu/vaani/.env
+ExecStart=/home/ubuntu/vaani/.venv/bin/uvicorn apps.api.main:app --host 127.0.0.1 --port 8001 --workers 1
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
