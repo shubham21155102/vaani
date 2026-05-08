@@ -106,7 +106,8 @@ step "5. STT venv (transformers 5.8 native VibeVoiceAsr)"
 "$ROOT/.venv-stt/bin/pip" install --quiet \
   "torch==2.7.0" "transformers==5.8.0" "fastapi==0.115.6" \
   "uvicorn[standard]==0.34.0" "structlog==24.4.0" "soundfile==0.13.0" \
-  "librosa==0.10.2.post1" "numpy<2" "av" "python-multipart==0.0.20"
+  "librosa==0.10.2.post1" "numpy<2" "av" "python-multipart==0.0.20" \
+  "pyjwt==2.10.1"
 ok "STT venv ready"
 
 # ----------------------------------------------------------------------

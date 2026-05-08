@@ -58,7 +58,7 @@ class TokenReq(BaseModel):
 
 
 @router.get("/agents")
-def list_agents():
+def list_agents(user: dict = Depends(auth_module.required_user)):
     presets = _load_presets()
     return {
         "agents": [

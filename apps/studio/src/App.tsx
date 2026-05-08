@@ -50,35 +50,16 @@ function AppLayout() {
         </header>
         
         <main className="flex-1 overflow-y-auto px-4 sm:px-8 py-8 w-full max-w-6xl mx-auto animate-fade-in relative">
+          {/* Every nested route is auth-gated by the RequireAuth wrapper
+              around AppLayout below. No per-route guards needed here. */}
           <Routes>
             <Route path="/" element={<Home />} />
             <Route path="/tts" element={<TTS />} />
             <Route path="/stt" element={<STT />} />
-            <Route
-              path="/agent"
-              element={
-                <RequireAuth>
-                  <Agent />
-                </RequireAuth>
-              }
-            />
+            <Route path="/agent" element={<Agent />} />
             <Route path="/voices" element={<Voices />} />
-            <Route
-              path="/keys"
-              element={
-                <RequireAuth>
-                  <Keys />
-                </RequireAuth>
-              }
-            />
-            <Route
-              path="/usage"
-              element={
-                <RequireAuth>
-                  <Usage />
-                </RequireAuth>
-              }
-            />
+            <Route path="/keys" element={<Keys />} />
+            <Route path="/usage" element={<Usage />} />
             <Route path="/docs" element={<Docs />} />
             <Route path="*" element={<Home />} />
           </Routes>
@@ -94,7 +75,14 @@ export default function App() {
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/signup" element={<Signup />} />
-        <Route path="/*" element={<AppLayout />} />
+        <Route
+          path="/*"
+          element={
+            <RequireAuth>
+              <AppLayout />
+            </RequireAuth>
+          }
+        />
       </Routes>
     </AuthProvider>
   );

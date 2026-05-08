@@ -331,13 +331,17 @@ def _lookup_user_voice(voice_id: str, user_id: int) -> Optional[str]:
 
 @app.get("/v1/voices")
 def list_voices(request: Request):
+    user = auth_module.current_user(request)
+    # Public voice list is gated to authenticated callers; internal loopback
+    # (e.g. a future worker fetching the catalog) can read without a token.
+    if not user and not _is_internal(request):
+        raise HTTPException(401, "authentication required")
     local = [
         {"id": vid, "stem": Path(p).stem, "language": vid.split("-")[0]}
         for vid, p in sorted(engine.voices.items())
         if vid == Path(p).stem.lower()  # de-dupe: only canonical IDs
     ]
     voices = local + _fetch_hi_voices()
-    user = auth_module.current_user(request)
     if user:
         voices = voices + _user_voices(user["id"])
     return {"voices": voices}
@@ -441,12 +445,28 @@ def _proxy_to_hi(input_text: str, voice: str, cfg_scale: float) -> bytes:
         raise HTTPException(503, f"hi worker unavailable: {e.reason}")
 
 
+def _is_internal(request: Request) -> bool:
+    """Loopback / agent-worker traffic doesn't go through Caddy, so it has
+    no X-Forwarded-* headers. External traffic always does (Caddy adds them).
+    Used to keep our own workers off the auth gate while still requiring auth
+    from public callers."""
+    h = request.headers
+    return ("x-forwarded-for" not in h) and ("x-real-ip" not in h)
+
+
 @app.post("/v1/audio/speech")
 async def create_speech(req: SpeechRequest, request: Request):
     if not engine.ready:
         raise HTTPException(503, "model still loading")
     if req.response_format != "wav":
         raise HTTPException(400, "only response_format=wav is supported in v1")
+
+    # Auth gate: external callers must present a valid JWT or API key.
+    # Internal workers (agent → localhost:8001) skip this so the realtime
+    # voice loop doesn't need to mint tokens.
+    if not _is_internal(request):
+        if not auth_module.current_user(request):
+            raise HTTPException(401, "authentication required")
 
     voice_lower = req.voice.lower()
 

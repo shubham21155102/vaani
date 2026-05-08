@@ -9,11 +9,13 @@ here; everything else hits the TTS API on 8001.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import io
 import json
 import logging
 import os
 import re
+import sqlite3
 import time
 from contextlib import asynccontextmanager
 
@@ -22,7 +24,7 @@ import numpy as np
 import soundfile as sf
 import structlog
 import torch
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from transformers import (  # type: ignore[import-not-found]
@@ -38,6 +40,55 @@ MODEL_PATH = os.environ.get(
 )
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 MAX_AUDIO_BYTES = 200 * 1024 * 1024  # 200 MB hard cap
+
+# Auth — STT worker is a separate venv from the main API. To keep dep
+# weight low, we re-implement the bearer check inline (PyJWT for sessions,
+# sha256 lookup against the SQLite api_keys table for vsk_live_*).
+JWT_SECRET = os.environ.get("VAANI_JWT_SECRET", "")
+JWT_ALGO = "HS256"
+DB_PATH = os.environ.get(
+    "VAANI_DB_PATH", "/home/ubuntu/vaani/data/vaani.sqlite3"
+)
+API_KEY_PREFIX = "vsk_live_"
+
+
+def _is_internal(request) -> bool:
+    h = request.headers
+    return ("x-forwarded-for" not in h) and ("x-real-ip" not in h)
+
+
+def _verify_bearer(token: str) -> bool:
+    if not token:
+        return False
+    if token.startswith(API_KEY_PREFIX):
+        try:
+            with sqlite3.connect(DB_PATH) as c:
+                row = c.execute(
+                    "SELECT 1 FROM api_keys WHERE key_hash = ? AND revoked_at IS NULL",
+                    (hashlib.sha256(token.encode("utf-8")).hexdigest(),),
+                ).fetchone()
+            return row is not None
+        except sqlite3.Error:
+            return False
+    try:
+        import jwt  # type: ignore[import-not-found]
+        if not JWT_SECRET:
+            return False
+        jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGO])
+        return True
+    except Exception:
+        return False
+
+
+def require_auth(request) -> None:
+    """Raise 401 unless the caller is internal or presents a valid bearer."""
+    if _is_internal(request):
+        return
+    auth = request.headers.get("authorization", "")
+    if not auth.lower().startswith("bearer "):
+        raise HTTPException(401, "authentication required")
+    if not _verify_bearer(auth[7:].strip()):
+        raise HTTPException(401, "invalid credentials")
 
 
 class Engine:
@@ -156,7 +207,8 @@ def _decode_audio(raw: bytes) -> np.ndarray:
 
 
 @app.post("/v1/audio/transcriptions")
-async def transcribe(file: UploadFile = File(...)):
+async def transcribe(request: Request, file: UploadFile = File(...)):
+    require_auth(request)
     if not engine.ready:
         raise HTTPException(503, "asr model still loading")
     raw = await file.read()
