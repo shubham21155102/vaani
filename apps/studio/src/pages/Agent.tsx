@@ -12,6 +12,7 @@ import { Mic, MicOff, Phone, PhoneOff, Loader2, Cpu } from "lucide-react";
 import { agentApi, api, type AgentPreset, type Voice } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { useWhisper } from "../lib/use-whisper";
+import { VoiceWave } from "../components/VoiceWave";
 
 type Status = "idle" | "connecting" | "connected" | "ending" | "error";
 
@@ -316,22 +317,48 @@ export function Agent() {
 
       <div className="mt-6 p-6 bg-panel border border-border rounded-xl">
         <div className="flex items-center gap-4">
-          <div className="relative w-16 h-16 rounded-full bg-panel-2 border border-border flex items-center justify-center">
+          <div className="relative w-16 h-16 rounded-full bg-panel-2 border border-border flex items-center justify-center overflow-visible">
+            {/* Pulsing ring when agent is actively speaking */}
+            <span
+              className={[
+                "absolute inset-0 rounded-full transition-transform duration-150",
+                agentSpeaking ? "scale-125 bg-ok/20" : "scale-100 bg-transparent",
+              ].join(" ")}
+              style={{
+                boxShadow: agentSpeaking
+                  ? `0 0 ${24 + agentLevel * 80}px rgba(34, 197, 94, ${0.3 + agentLevel * 0.6})`
+                  : undefined,
+              }}
+            />
             <span
               className={[
                 "absolute inset-0 rounded-full",
-                status === "connected" && agentJoined ? "animate-ping bg-accent/30" : "",
+                status === "connected" && agentJoined && !agentSpeaking
+                  ? "animate-ping bg-accent/20"
+                  : "",
               ].join(" ")}
             />
             <Phone size={22} className="text-accent relative" />
           </div>
           <div className="flex-1 min-w-0">
-            <div className="font-medium">
-              {status === "idle" && "Ready"}
-              {status === "connecting" && "Connecting…"}
-              {status === "connected" && (agentJoined ? "Connected · Vaani is listening" : "Connected · waiting for assistant…")}
-              {status === "ending" && "Hanging up…"}
-              {status === "error" && "Connection failed"}
+            <div className="font-medium flex items-center gap-3">
+              <span>
+                {status === "idle" && "Ready"}
+                {status === "connecting" && "Connecting…"}
+                {status === "connected" && agentJoined && agentSpeaking && "Vaani is speaking…"}
+                {status === "connected" && agentJoined && !agentSpeaking && userSpeaking && "Listening…"}
+                {status === "connected" && agentJoined && !agentSpeaking && !userSpeaking && "Connected · Vaani is listening"}
+                {status === "connected" && !agentJoined && "Connected · waiting for assistant…"}
+                {status === "ending" && "Hanging up…"}
+                {status === "error" && "Connection failed"}
+              </span>
+              {status === "connected" && (
+                <VoiceWave
+                  level={Math.max(userLevel, agentLevel)}
+                  active={userSpeaking || agentSpeaking}
+                  color={agentSpeaking ? "ok" : userSpeaking ? "accent" : "muted"}
+                />
+              )}
             </div>
             <div className="text-xs text-muted mt-0.5">
               {user ? `Joined as ${user.display_name || user.email}` : "Not signed in"}
