@@ -1,0 +1,23 @@
+[Unit]
+Description=Vaani LiveKit voice agent worker
+After=network-online.target vaani-api.service vaani-livekit.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu/vaani
+EnvironmentFile=/home/ubuntu/vaani/.env
+Environment=PYTHONUNBUFFERED=1
+Environment=LIVEKIT_URL=wss://livekit.shubhamiitbhu.in
+Environment=LIVEKIT_API_KEY=
+Environment=LIVEKIT_API_SECRET=
+ExecStart=/bin/sh -c 'export LIVEKIT_API_KEY=$$VAANI_LIVEKIT_API_KEY; export LIVEKIT_API_SECRET=$$VAANI_LIVEKIT_API_SECRET; exec /home/ubuntu/vaani/.venv-agent/bin/python -m apps.agent.main start'
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
