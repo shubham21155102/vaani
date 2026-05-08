@@ -199,7 +199,7 @@ export function Agent() {
           <div className="mt-4 p-3 border border-err rounded-lg text-err text-sm">{error}</div>
         )}
 
-        <audio ref={audioRef} autoPlay playsInline className="hidden" />
+        <audio ref={audioRef} autoPlay playsInline controls className="mt-4 w-full" />
       </div>
 
       <h2 className="mt-8 text-sm uppercase tracking-wide text-muted">Transcript</h2>

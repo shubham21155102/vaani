@@ -189,6 +189,16 @@ class _VaaniSynth(tts.ChunkedStream):
         # Push in 200ms chunks (matches frame_size_ms above).
         bytes_per_sample = 2 * num_channels
         chunk_bytes = (sample_rate // 5) * bytes_per_sample  # 200ms
+        n_chunks = 0
         for i in range(0, len(pcm), chunk_bytes):
             output_emitter.push(pcm[i : i + chunk_bytes])
+            n_chunks += 1
         output_emitter.flush()
+        log.info(
+            "vaani_tts_emitted",
+            chars=len(text),
+            sr=sample_rate,
+            pcm_bytes=len(pcm),
+            chunks=n_chunks,
+            audio_seconds=round(len(pcm) / (bytes_per_sample * sample_rate), 2),
+        )

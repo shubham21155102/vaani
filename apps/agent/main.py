@@ -82,10 +82,14 @@ async def entrypoint(ctx: JobContext) -> None:
 
     # Stream transcripts to the SPA via a reliable data channel — the
     # /agent page listens for {"role":..., "text":...} JSON.
+    # publish_data is async; schedule the coroutine instead of calling it.
+    import asyncio as _asyncio
+
     def _publish(role: str, text: str) -> None:
+        payload = json.dumps({"role": role, "text": text}).encode("utf-8")
         try:
-            payload = json.dumps({"role": role, "text": text}).encode("utf-8")
-            ctx.room.local_participant.publish_data(payload, reliable=True)
+            coro = ctx.room.local_participant.publish_data(payload, reliable=True)
+            _asyncio.create_task(coro)
         except Exception as e:
             log.warning("publish_data_failed", error=str(e))
 
