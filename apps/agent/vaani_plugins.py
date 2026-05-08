@@ -25,6 +25,7 @@ from livekit.agents.utils import AudioBuffer
 log = structlog.get_logger()
 
 TTS_URL = "http://127.0.0.1:8001/v1/audio/speech"
+TTS_URL_HI = "http://127.0.0.1:8003/v1/audio/speech"  # community fork worker
 STT_URL = "http://127.0.0.1:8002/v1/audio/transcriptions"
 
 
@@ -109,7 +110,7 @@ class VaaniTTS(tts.TTS):
     def __init__(
         self,
         voice: str = "en-emma_woman",
-        url: str = TTS_URL,
+        url: str | None = None,
         timeout: float = 120.0,
     ) -> None:
         super().__init__(
@@ -118,6 +119,14 @@ class VaaniTTS(tts.TTS):
             num_channels=self.NUM_CHANNELS,
         )
         self._voice = voice
+        # Pick the right backend automatically based on the voice ID:
+        # absolute paths (cloned user voices) and hi-* presets live on the
+        # community-fork worker at :8003; everything else on the main API.
+        if url is None:
+            if voice.startswith("/") or voice.lower().startswith("hi-"):
+                url = TTS_URL_HI
+            else:
+                url = TTS_URL
         self._url = url
         self._timeout = timeout
         self._client = httpx.AsyncClient(timeout=timeout)

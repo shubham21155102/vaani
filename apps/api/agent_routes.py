@@ -39,6 +39,16 @@ def _load_presets() -> dict:
         return {}
 
 
+def _resolve_user_voice(voice_id: str, user_id: int) -> str | None:
+    """Look up a user's cloned voice, return absolute file path or None."""
+    with auth_module.db() as c:
+        row = c.execute(
+            "SELECT file_path FROM user_voices WHERE voice_id = ? AND user_id = ?",
+            (voice_id, user_id),
+        ).fetchone()
+    return row["file_path"] if row else None
+
+
 router = APIRouter(prefix="/v1/agent", tags=["agent"])
 
 
@@ -76,6 +86,16 @@ def token(
     if agent_id not in presets:
         agent_id = "general"
     voice_override = (req.voice or "").strip() if req else ""
+
+    # Resolve a cloned-voice ID (`user{id}-{slug}`) to its absolute .wav path
+    # while we still have the authed user. The agent worker has no JWT and
+    # would otherwise fail auth on the main-API user-voice path.
+    if voice_override.lower().startswith("user"):
+        path = _resolve_user_voice(voice_override, user["id"])
+        if path:
+            voice_override = path
+        else:
+            voice_override = ""  # ignore unknown / unowned IDs
 
     room_name = f"vaani-{user['id']}-{agent_id}"
     grants = lk_api.VideoGrants(
