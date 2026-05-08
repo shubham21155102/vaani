@@ -39,6 +39,8 @@ from livekit.agents import (
 )
 from livekit.plugins import openai, silero
 
+from .vaani_plugins import VaaniSTT, VaaniTTS
+
 logging.getLogger("livekit").setLevel(logging.INFO)
 log = structlog.get_logger()
 
@@ -68,22 +70,13 @@ async def entrypoint(ctx: JobContext) -> None:
         raise RuntimeError("VAANI_GROQ_API_KEY env var is required")
 
     session = AgentSession(
-        stt=openai.STT(
-            model=STT_MODEL,
-            base_url=GROQ_BASE,
-            api_key=GROQ_API_KEY,
-        ),
+        stt=VaaniSTT(),
         llm=openai.LLM(
             model=LLM_MODEL,
             base_url=GROQ_BASE,
             api_key=GROQ_API_KEY,
         ),
-        tts=openai.TTS(
-            model=TTS_MODEL,
-            voice=TTS_VOICE,
-            base_url=GROQ_BASE,
-            api_key=GROQ_API_KEY,
-        ),
+        tts=VaaniTTS(voice="en-emma_woman"),
         vad=silero.VAD.load(),
     )
 
