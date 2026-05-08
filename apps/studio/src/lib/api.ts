@@ -73,6 +73,14 @@ export interface Payment {
   paid_at: string | null;
 }
 
+export const agentApi = {
+  token: (token: string) =>
+    json<{ url: string; token: string; room: string }>("/v1/agent/token", {
+      method: "POST",
+      headers: authHeaders(token),
+    }),
+};
+
 export const billingApi = {
   packages: () =>
     json<{ packages: Package[]; currency: string }>("/v1/billing/packages"),

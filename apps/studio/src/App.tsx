@@ -12,6 +12,7 @@ import { Usage } from "./pages/Usage";
 import { Docs } from "./pages/Docs";
 import { Login } from "./pages/Login";
 import { Signup } from "./pages/Signup";
+import { Agent } from "./pages/Agent";
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
@@ -39,6 +40,14 @@ function AppLayout() {
             <Route path="/" element={<Home />} />
             <Route path="/tts" element={<TTS />} />
             <Route path="/stt" element={<STT />} />
+            <Route
+              path="/agent"
+              element={
+                <RequireAuth>
+                  <Agent />
+                </RequireAuth>
+              }
+            />
             <Route path="/voices" element={<Voices />} />
             <Route
               path="/keys"

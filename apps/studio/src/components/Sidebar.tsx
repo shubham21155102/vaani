@@ -7,12 +7,14 @@ import {
   KeyRound,
   CreditCard,
   BookOpen,
+  MessageSquare,
 } from "lucide-react";
 
 const NAV = [
   { to: "/", icon: Home, label: "Home", end: true },
   { to: "/tts", icon: Mic2, label: "Text to Speech" },
   { to: "/stt", icon: AudioLines, label: "Speech to Text" },
+  { to: "/agent", icon: MessageSquare, label: "Voice Agent" },
   { to: "/voices", icon: Users, label: "Voices" },
   { to: "/keys", icon: KeyRound, label: "API Keys" },
   { to: "/usage", icon: CreditCard, label: "Usage & Credits" },
