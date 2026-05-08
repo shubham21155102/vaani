@@ -105,7 +105,14 @@ async def entrypoint(ctx: JobContext) -> None:
     log.info("agent_preset_selected", agent_id=agent_id, voice=preset.get("voice"))
 
     session = AgentSession(
-        stt=VaaniSTT(),
+        # STT: Groq Whisper for ~200ms turn latency. VibeVoice-ASR (long-form,
+        # slow per-turn) stays as the engine behind /v1/audio/transcriptions
+        # for the file-upload Studio page, but isn't used in realtime calls.
+        stt=openai.STT(
+            model=STT_MODEL,
+            base_url=GROQ_BASE,
+            api_key=GROQ_API_KEY,
+        ),
         llm=openai.LLM(
             model=LLM_MODEL,
             base_url=GROQ_BASE,
