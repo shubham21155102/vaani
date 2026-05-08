@@ -10,8 +10,10 @@ from __future__ import annotations
 
 import asyncio
 import io
+import json
 import logging
 import os
+import re
 import time
 from contextlib import asynccontextmanager
 
@@ -171,16 +173,42 @@ async def transcribe(file: UploadFile = File(...)):
     duration = len(audio) / engine.sample_rate
     t0 = time.time()
     async with engine.lock:
-        text = await asyncio.to_thread(engine.transcribe, audio)
+        raw_out = await asyncio.to_thread(engine.transcribe, audio)
     elapsed = time.time() - t0
+
+    # The model emits "assistant\n[{...}]" — strip the chat-template prefix,
+    # then parse the JSON segment list. Fall back to plain text if parsing
+    # fails so we always return something useful.
+    cleaned = re.sub(r"^\s*assistant\s*\n", "", raw_out, count=1)
+    segments: list[dict] = []
+    text_only = cleaned
+    try:
+        parsed = json.loads(cleaned)
+        if isinstance(parsed, list):
+            segments = [
+                {
+                    "start": float(s.get("Start", 0)),
+                    "end": float(s.get("End", 0)),
+                    "speaker": int(s.get("Speaker", 0)),
+                    "text": str(s.get("Content", "")),
+                }
+                for s in parsed
+                if isinstance(s, dict)
+            ]
+            text_only = " ".join(s["text"] for s in segments).strip()
+    except (json.JSONDecodeError, ValueError, TypeError):
+        pass
+
     log.info(
         "transcribed",
         bytes=len(raw),
         seconds=round(elapsed, 2),
         audio_seconds=round(duration, 2),
-        chars=len(text),
+        segments=len(segments),
+        chars=len(text_only),
     )
     return {
-        "text": text,
+        "text": text_only,
+        "segments": segments,
         "duration": round(duration, 2),
     }
