@@ -13,6 +13,7 @@ import { agentApi, api, type AgentPreset, type Voice } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { useWhisper } from "../lib/use-whisper";
 import { VoiceWave } from "../components/VoiceWave";
+import { Select, type SelectGroup, type SelectOption } from "../components/Select";
 
 type Status = "idle" | "connecting" | "connected" | "ending" | "error";
 
@@ -249,57 +250,82 @@ export function Agent() {
                 <label className="block text-[10px] font-mono uppercase tracking-widest text-muted mb-2 ml-1">
                   Select Construct
                 </label>
-                <select
+                <Select
                   value={agentId}
-                  onChange={(e) => setAgentId(e.target.value)}
+                  onChange={setAgentId}
                   disabled={status === "connected" || status === "connecting"}
-                  className="w-full bg-panel-2/80 border border-border/50 rounded-xl p-3 text-sm font-medium focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/50 transition-all appearance-none disabled:opacity-60"
-                >
-                  {agents.length === 0 ? (
-                    <option value="general">Vaani Assistant</option>
-                  ) : (
-                    agents.map((a) => (
-                      <option key={a.id} value={a.id}>
-                        {a.name} — {a.description}
-                      </option>
-                    ))
-                  )}
-                </select>
+                  placeholder="Select an agent…"
+                  options={
+                    agents.length === 0
+                      ? [{ value: "general", label: "Vaani Assistant" }]
+                      : agents.map<SelectOption>((a) => ({
+                          value: a.id,
+                          label: a.name,
+                          hint: a.description,
+                        }))
+                  }
+                />
               </div>
 
               <div>
                 <label className="block text-[10px] font-mono uppercase tracking-widest text-muted mb-2 ml-1">
                   Voice Override
                 </label>
-                <select
+                <Select
                   value={voiceOverride}
-                  onChange={(e) => setVoiceOverride(e.target.value)}
+                  onChange={setVoiceOverride}
                   disabled={status === "connected" || status === "connecting"}
-                  className="w-full bg-panel-2/80 border border-border/50 rounded-xl p-3 text-sm font-medium focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/50 transition-all appearance-none disabled:opacity-60"
-                >
-                  <option value="">
-                    Default ({agents.find((a) => a.id === agentId)?.voice || "en-emma_woman"})
-                  </option>
-                  {(() => {
-                    const groups: Record<string, Voice[]> = {};
-                    for (const v of voices) {
-                      const lang = (v.language || v.id.split("-")[0]).toUpperCase();
-                      (groups[lang] ||= []).push(v);
+                  placeholder="Choose a voice…"
+                  groups={(() => {
+                    const defaultVoice =
+                      agents.find((a) => a.id === agentId)?.voice ||
+                      "en-emma_woman";
+                    const groups: SelectGroup[] = [
+                      {
+                        label: "Default",
+                        options: [
+                          {
+                            value: "",
+                            label: "Use agent's default",
+                            meta: defaultVoice,
+                          },
+                        ],
+                      },
+                    ];
+                    const byLang: Record<string, Voice[]> = {};
+                    const myVoices = voices.filter((v) => v.user);
+                    if (myVoices.length) {
+                      groups.push({
+                        label: "My Voices",
+                        options: myVoices.map((v) => ({
+                          value: v.id,
+                          label: v.stem,
+                          meta: v.id,
+                          badge: "★",
+                        })),
+                      });
                     }
-                    return Object.entries(groups)
-                      .sort(([a], [b]) => a.localeCompare(b))
-                      .map(([lang, list]) => (
-                        <optgroup key={lang} label={lang} className="bg-panel text-muted">
-                          {list.map((v) => (
-                            <option key={v.id} value={v.id} className="text-text bg-panel-2">
-                              {v.stem}
-                              {v.user ? " ★" : ""}
-                            </option>
-                          ))}
-                        </optgroup>
-                      ));
+                    for (const v of voices) {
+                      if (v.user) continue;
+                      const lang = (
+                        v.language || v.id.split("-")[0]
+                      ).toUpperCase();
+                      (byLang[lang] ||= []).push(v);
+                    }
+                    for (const lang of Object.keys(byLang).sort()) {
+                      groups.push({
+                        label: lang,
+                        options: byLang[lang].map((v) => ({
+                          value: v.id,
+                          label: v.stem,
+                          meta: v.id,
+                          badge: lang === "HI" ? "🇮🇳" : undefined,
+                        })),
+                      });
+                    }
+                    return groups;
                   })()}
-                </select>
+                />
               </div>
 
               <div className="pt-4 border-t border-border/50">

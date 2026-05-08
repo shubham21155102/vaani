@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Loader2, Play, Download, Upload, Trash2, Zap } from "lucide-react";
 import { api, voicesApi, type Voice } from "../lib/api";
 import { useAuth } from "../lib/auth";
+import { Select, type SelectGroup } from "../components/Select";
 
 const EXAMPLES: ReadonlyArray<readonly [string, string]> = [
   ["greeting", "Hello from Vaani. Voice AI for India and beyond, built on open source."],
@@ -157,22 +158,25 @@ export function TTS() {
             <label className="block text-[10px] font-mono uppercase tracking-widest text-muted mb-3">
               Voice Model
             </label>
-            <select
+            <Select
               value={voice}
-              onChange={(e) => setVoice(e.target.value)}
-              className="w-full bg-panel-2/50 border border-border/50 rounded-xl p-3 font-medium focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/50 transition-all appearance-none"
-            >
-              {groupedVoices.map(({ label, list }) => (
-                <optgroup key={label} label={label} className="bg-panel text-muted">
-                  {list.map((v) => (
-                    <option key={v.id} value={v.id} className="text-text bg-panel-2">
-                      {v.stem}
-                      {v.language === "hi" ? " 🇮🇳" : ""}
-                    </option>
-                  ))}
-                </optgroup>
-              ))}
-            </select>
+              onChange={setVoice}
+              placeholder="Choose a voice…"
+              groups={groupedVoices.map<SelectGroup>(({ label, list }) => ({
+                label,
+                options: list.map((v) => ({
+                  value: v.id,
+                  label: v.stem,
+                  meta: v.id,
+                  badge:
+                    v.user
+                      ? "★"
+                      : v.language === "hi" || v.id.startsWith("hi-")
+                      ? "🇮🇳"
+                      : undefined,
+                })),
+              }))}
+            />
             {voices.find((v) => v.id === voice)?.user && (
               <button
                 onClick={() => deleteVoice(voice)}
