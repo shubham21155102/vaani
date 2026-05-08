@@ -156,6 +156,22 @@ async def entrypoint(ctx: JobContext) -> None:
         if text:
             _publish("assistant", str(text))
 
+    # Browser-side WebGPU Whisper sends transcripts via the `user_text`
+    # data-channel topic; treat them as user input bypassing server STT.
+    @ctx.room.on("data_received")
+    def _on_data(packet: "rtc.DataPacket") -> None:
+        if getattr(packet, "topic", None) != "user_text":
+            return
+        try:
+            payload = json.loads(packet.data.decode("utf-8"))
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            return
+        text = (payload.get("text") or "").strip()
+        if not text:
+            return
+        log.info("user_text_received", text=text[:80])
+        _asyncio.create_task(session.generate_reply(user_input=text))
+
     await session.start(
         agent=Agent(instructions=preset.get("instructions", DEFAULT_PRESET["instructions"])),
         room=ctx.room,

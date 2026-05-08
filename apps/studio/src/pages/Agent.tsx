@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Room,
   RoomEvent,
@@ -8,9 +8,10 @@ import {
   type RemoteParticipant,
   type LocalParticipant,
 } from "livekit-client";
-import { Mic, MicOff, Phone, PhoneOff, Loader2 } from "lucide-react";
+import { Mic, MicOff, Phone, PhoneOff, Loader2, Cpu } from "lucide-react";
 import { agentApi, type AgentPreset } from "../lib/api";
 import { useAuth } from "../lib/auth";
+import { useWhisper } from "../lib/use-whisper";
 
 type Status = "idle" | "connecting" | "connected" | "ending" | "error";
 
@@ -29,9 +30,36 @@ export function Agent() {
   const [transcript, setTranscript] = useState<TranscriptLine[]>([]);
   const [agents, setAgents] = useState<AgentPreset[]>([]);
   const [agentId, setAgentId] = useState<string>("general");
+  const [browserSttEnabled, setBrowserSttEnabled] = useState<boolean>(false);
+  const [webgpuSupported, setWebgpuSupported] = useState<boolean>(false);
 
   const roomRef = useRef<Room | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  // Detect WebGPU once on mount.
+  useEffect(() => {
+    const has = typeof navigator !== "undefined" && "gpu" in navigator;
+    setWebgpuSupported(Boolean(has));
+  }, []);
+
+  // Browser STT — load model only while toggle is on; route transcripts to
+  // the room as data messages so the agent worker treats them as user input.
+  const handleLocalTranscript = useCallback((text: string) => {
+    if (!text) return;
+    const lp = roomRef.current?.localParticipant;
+    if (!lp) return;
+    setTranscript((prev) => [...prev, { who: "you", text, ts: Date.now() }]);
+    const payload = new TextEncoder().encode(
+      JSON.stringify({ type: "user_text", text })
+    );
+    // reliable + topic so the agent can filter
+    lp.publishData(payload, { reliable: true, topic: "user_text" }).catch(() => {});
+  }, []);
+
+  const whisper = useWhisper({
+    enabled: browserSttEnabled && status === "connected",
+    onTranscript: handleLocalTranscript,
+  });
 
   useEffect(() => {
     agentApi.list().then((r) => setAgents(r.agents)).catch(() => {});
@@ -95,7 +123,10 @@ export function Agent() {
       );
 
       await room.connect(url, lkToken);
-      await room.localParticipant.setMicrophoneEnabled(true);
+      // If browser STT is on, the user's mic stays muted in the room — we'll
+      // do recognition locally and send text. Otherwise mic publishes normally
+      // for server-side STT.
+      await room.localParticipant.setMicrophoneEnabled(!browserSttEnabled);
 
       // Mark already-present agents.
       for (const p of room.remoteParticipants.values()) {
@@ -103,6 +134,16 @@ export function Agent() {
       }
 
       setStatus("connected");
+      if (browserSttEnabled) {
+        try {
+          await whisper.start();
+        } catch (e: unknown) {
+          setError(
+            "WebGPU mic capture failed: " +
+              (e instanceof Error ? e.message : String(e))
+          );
+        }
+      }
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : String(e));
       setStatus("error");
@@ -117,6 +158,7 @@ export function Agent() {
 
   async function disconnect() {
     setStatus("ending");
+    whisper.stop();
     try {
       await roomRef.current?.disconnect();
     } catch {
@@ -168,6 +210,54 @@ export function Agent() {
             voice: <code className="font-mono">{agents.find((a) => a.id === agentId)?.voice}</code>
           </p>
         )}
+
+        <div className="mt-5 pt-5 border-t border-border">
+          <label className="flex items-start gap-3 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={browserSttEnabled}
+              onChange={(e) => setBrowserSttEnabled(e.target.checked)}
+              disabled={
+                !webgpuSupported ||
+                status === "connected" ||
+                status === "connecting"
+              }
+              className="mt-1 accent-accent"
+            />
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 text-sm font-medium">
+                <Cpu size={14} className="text-accent" />
+                Run STT in your browser (WebGPU Whisper)
+              </div>
+              <p className="text-xs text-muted mt-1">
+                Audio never leaves your device. Lower server cost, better privacy.
+                {!webgpuSupported && (
+                  <span className="text-err">
+                    {" "}— Your browser doesn't expose WebGPU; toggle disabled.
+                  </span>
+                )}
+              </p>
+              {browserSttEnabled && whisper.state.kind === "loading" && (
+                <p className="text-xs text-muted mt-1">
+                  Loading Whisper model… {Math.round((whisper.state.progress || 0) * 100)}%
+                </p>
+              )}
+              {browserSttEnabled && whisper.state.kind === "error" && (
+                <p className="text-xs text-err mt-1">
+                  Whisper error: {whisper.state.message}
+                </p>
+              )}
+              {browserSttEnabled &&
+                (whisper.state.kind === "ready" ||
+                  whisper.state.kind === "listening" ||
+                  whisper.state.kind === "transcribing") && (
+                  <p className="text-xs text-ok mt-1">
+                    Whisper {whisper.state.kind === "transcribing" ? "transcribing…" : "ready"}
+                  </p>
+                )}
+            </div>
+          </label>
+        </div>
       </div>
 
       <div className="mt-6 p-6 bg-panel border border-border rounded-xl">
