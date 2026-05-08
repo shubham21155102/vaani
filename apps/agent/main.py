@@ -21,16 +21,19 @@ Required env (loaded by systemd EnvironmentFile=):
 """
 from __future__ import annotations
 
+import json
 import logging
 import os
 
 import structlog
-from livekit import agents
+from livekit import agents, rtc
 from livekit.agents import (
     Agent,
     AgentSession,
+    ConversationItemAddedEvent,
     JobContext,
     RoomInputOptions,
+    UserInputTranscribedEvent,
     WorkerOptions,
     cli,
 )
@@ -83,6 +86,32 @@ async def entrypoint(ctx: JobContext) -> None:
         ),
         vad=silero.VAD.load(),
     )
+
+    # Stream transcripts to the SPA via a reliable data channel — the
+    # /agent page listens for {"role":..., "text":...} JSON.
+    def _publish(role: str, text: str) -> None:
+        try:
+            payload = json.dumps({"role": role, "text": text}).encode("utf-8")
+            ctx.room.local_participant.publish_data(payload, reliable=True)
+        except Exception as e:
+            log.warning("publish_data_failed", error=str(e))
+
+    @session.on("user_input_transcribed")
+    def _on_user(ev: "UserInputTranscribedEvent") -> None:
+        if ev.is_final and ev.transcript:
+            _publish("user", ev.transcript)
+
+    @session.on("conversation_item_added")
+    def _on_item(ev: "ConversationItemAddedEvent") -> None:
+        item = ev.item
+        if item.role == "assistant":
+            text = (
+                item.text_content
+                if hasattr(item, "text_content")
+                else getattr(item, "content", "")
+            )
+            if text:
+                _publish("assistant", str(text))
 
     await session.start(
         agent=Agent(instructions=AGENT_PROMPT),
