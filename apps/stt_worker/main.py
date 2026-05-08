@@ -83,9 +83,15 @@ class Engine:
             return_tensors="pt",
         )
         prompt_len = inputs["input_ids"].shape[1]
+        # Cast float tensors (input_features) to the model's compute dtype.
+        # Token tensors (input_ids, attention_mask) and bool masks stay as-is.
+        model_dtype = next(self.model.parameters()).dtype
         for k, v in inputs.items():
             if torch.is_tensor(v):
-                inputs[k] = v.to(DEVICE)
+                if v.is_floating_point():
+                    inputs[k] = v.to(DEVICE, dtype=model_dtype)
+                else:
+                    inputs[k] = v.to(DEVICE)
 
         with torch.inference_mode():
             out = self.model.generate(
